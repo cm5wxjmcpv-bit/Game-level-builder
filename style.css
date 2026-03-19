@@ -9,6 +9,9 @@
   --water: #2a78c8;
   --lava: #e65032;
   --spawn: #26a05f;
+  --portal: #6c4ad2;
+  --camp: #8b5a2b;
+  --bridge: #8f6a3b;
   --floor1: #d3be95;
   --floor2: #c4b0e2;
   --floor3: #9ac8b4;
@@ -191,6 +194,9 @@ input[type="file"] {
 .cell[data-tile-id="2"] { background: var(--water); }
 .cell[data-tile-id="3"] { background: var(--lava); }
 .cell[data-tile-id="4"] { background: var(--spawn); }
+.cell[data-tile-id="5"] { background: var(--portal); }
+.cell[data-tile-id="6"] { background: var(--camp); }
+.cell[data-tile-id="7"] { background: var(--bridge); }
 .cell[data-tile-id="10"] { background: var(--floor1); }
 .cell[data-tile-id="11"] { background: var(--floor2); }
 .cell[data-tile-id="12"] { background: var(--floor3); }
