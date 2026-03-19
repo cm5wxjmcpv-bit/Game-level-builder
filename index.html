@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Level Builder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>2D Level Builder (v1)</h1>
+    <p>Create and export a level skeleton using tile IDs for future game use.</p>
+  </header>
+
+  <main class="layout">
+    <aside class="panel controls-panel">
+      <h2>Tiles & Tools</h2>
+      <div id="palette" class="palette" aria-label="Tile palette"></div>
+
+      <div class="tool-row">
+        <button id="eraserBtn" type="button" class="secondary-btn">Eraser (Tile 0)</button>
+      </div>
+
+      <h2>Map Actions</h2>
+      <div class="actions">
+        <button id="exportBtn" type="button">Export JSON</button>
+        <label for="importInput" class="file-label">Import JSON</label>
+        <input id="importInput" type="file" accept="application/json" />
+        <button id="clearBtn" type="button" class="danger-btn">Clear Map</button>
+        <button id="openViewerBtn" type="button" class="secondary-btn">Open Viewer (Preview Current Map)</button>
+      </div>
+
+      <div class="status-box">
+        <p><strong>Selected:</strong> <span id="selectedToolLabel">None</span></p>
+        <p><strong>Grid Size:</strong> <span id="gridSizeLabel">0</span> x <span id="gridSizeLabel2">0</span></p>
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="legend">
+        <h3>Tile IDs</h3>
+        <ul id="tileLegend"></ul>
+      </div>
+    </aside>
+
+    <section class="panel editor-panel">
+      <h2>Editor Grid</h2>
+      <div id="gridContainer" class="grid-container" aria-label="Level editor grid"></div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
