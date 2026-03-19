@@ -10,12 +10,15 @@
     2: { label: 'Water', id: 2 },
     3: { label: 'Lava', id: 3 },
     4: { label: 'Spawn', id: 4 },
+    5: { label: 'Portal', id: 5 },
+    6: { label: 'Enemy Camp', id: 6 },
+    7: { label: 'Bridge', id: 7 },
     10: { label: 'Floor 1', id: 10 },
     11: { label: 'Floor 2', id: 11 },
     12: { label: 'Floor 3', id: 12 }
   };
 
-  const PALETTE_ORDER = [0, 1, 2, 3, 4, 10, 11, 12];
+  const PALETTE_ORDER = [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12];
 
   const dom = {
     viewerGridContainer: document.getElementById('viewerGridContainer'),
@@ -148,8 +151,6 @@
       throw new Error('tiles must be an array with exactly gridSize rows.');
     }
 
-    let spawnCount = 0;
-
     for (let row = 0; row < gridSize; row += 1) {
       if (!Array.isArray(tiles[row]) || tiles[row].length !== gridSize) {
         throw new Error('Each tiles row must have exactly gridSize columns.');
@@ -163,14 +164,7 @@
         if (!Object.prototype.hasOwnProperty.call(TILE_DEFS, tileId)) {
           throw new Error('Unsupported tile ID found: ' + tileId);
         }
-        if (tileId === 4) {
-          spawnCount += 1;
-        }
       }
-    }
-
-    if (spawnCount > 1) {
-      throw new Error('Map can contain only one spawn tile (ID 4).');
     }
 
     return {
