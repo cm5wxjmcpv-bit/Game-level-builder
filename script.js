@@ -862,31 +862,90 @@
   }
 
   function serializeEngineMap() {
+    const mappedTiles = mapTilesToEngineIds();
+    const spawn = resolveSpawnFromObjects(mappedTiles);
+    const groupedObjects = collectEngineObjectsFromLayer();
+
     return {
-      formatVersion: 3,
-      map: {
-        mapType: state.mapType,
-        type: state.mapType,
-        id: state.mapId,
-        name: state.mapName,
-        width: state.width,
-        height: state.height,
-        tiles: cloneLayer(state.tileLayer),
-        tileLayer: cloneLayer(state.tileLayer),
-        objectLayer: cloneLayer(state.objectLayer),
-        objects: collectObjectsFromLayer(),
-        metadata: {
-          tileset: 'default',
-          textureMappingHint: 'Use tile ID names in engine texture packs.',
-          tileMetadata: collectTileMetadata(),
-          future: {
-            npcSpawns: [],
-            scriptedEvents: [],
-            triggers: []
-          }
-        }
-      }
+      id: state.mapId,
+      name: state.mapName,
+      width: state.width,
+      height: state.height,
+      tiles: mappedTiles,
+      objects: groupedObjects,
+      spawn: spawn
     };
+  }
+
+  function mapTilesToEngineIds() {
+    return state.tileLayer.map(function (row) {
+      return row.map(function (tileId) {
+        return mapTileIdToEngine(tileId);
+      });
+    });
+  }
+
+  function mapTileIdToEngine(tileId) {
+    const tileMap = {
+      empty: 'floor_grass_a',
+      floor_stone: 'floor_stone_a',
+      floor_wood: 'floor_wood_a',
+      floor_grass: 'floor_grass_a',
+      floor_sand: 'floor_sand_a',
+      floor_dirt: 'floor_dirt_a',
+      floor_cobble: 'floor_stone_b',
+      floor_tile: 'floor_stone_b',
+      floor_moss: 'floor_grass_b',
+      floor_snow: 'floor_ice_a',
+      floor_ash: 'floor_dirt_b',
+      floor_crystal: 'floor_marble_a',
+      floor_darkstone: 'floor_stone_b',
+      floor_marble: 'floor_marble_a',
+      floor_ruins: 'floor_stone_b',
+      floor_planks: 'floor_wood_a',
+      wall_stone: 'wall_rock_a',
+      wall_wood: 'wall_wood_a',
+      wall_brick: 'wall_brick_a',
+      wall_metal: 'wall_brick_b',
+      wall_ruin: 'wall_rock_b',
+      cliff: 'wall_rock_a',
+      tree_block: 'wall_rock_b',
+      rock_block: 'wall_rock_a',
+      fence: 'wall_wood_a',
+      gate_closed: 'wall_wood_a',
+      gate_open: 'floor_wood_a',
+      breakable_wall: 'wall_brick_a',
+      secret_wall: 'wall_rock_b',
+      cave_wall: 'wall_rock_a',
+      castle_wall: 'wall_brick_b',
+      lava: 'hazard_lava',
+      water: 'hazard_water',
+      swamp: 'hazard_swamp',
+      poison: 'hazard_poison',
+      acid: 'hazard_poison',
+      spikes: 'floor_stone_a',
+      fire_trap: 'floor_stone_a',
+      ice: 'floor_ice_a',
+      mud: 'floor_dirt_b',
+      quicksand: 'floor_sand_a',
+      cursed_ground: 'hazard_poison',
+      electric_floor: 'floor_stone_b',
+      thorn_patch: 'floor_grass_b',
+      healing_pool: 'hazard_water',
+      slow_field: 'hazard_swamp',
+      bridge: 'special_portal_pad',
+      stairs_up: 'floor_stone_b',
+      stairs_down: 'floor_stone_b',
+      ladder: 'floor_wood_a',
+      jump_pad: 'special_portal_pad',
+      narrow_path: 'floor_dirt_a',
+      doorway: 'floor_stone_a',
+      tunnel_entry: 'floor_stone_b',
+      tunnel_exit: 'floor_stone_b',
+      one_way_gate: 'wall_wood_a'
+    };
+
+    return tileMap[tileId] || 'floor_grass_a';
   }
 
   function collectTileMetadata() {
@@ -921,6 +980,130 @@
       }
     }
     return objects;
+  }
+
+  function collectEngineObjectsFromLayer() {
+    const grouped = {
+      portals: [],
+      shops: [],
+      fountains: [],
+      enemySpawns: []
+    };
+
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
+        const objectId = state.objectLayer[row][col];
+        if (objectId === OBJECT_IDS.none || objectId === OBJECT_IDS.player_start) {
+          continue;
+        }
+
+        if (isPortalObject(objectId)) {
+          grouped.portals.push({
+            x: col,
+            y: row,
+            levels: []
+          });
+          continue;
+        }
+
+        if (isShopObject(objectId)) {
+          grouped.shops.push({
+            x: col,
+            y: row,
+            shopId: mapShopObjectToEngineShopId(objectId)
+          });
+          continue;
+        }
+
+        if (objectId === OBJECT_IDS.fountain) {
+          grouped.fountains.push({ x: col, y: row });
+          continue;
+        }
+
+        if (isEnemySpawnObject(objectId)) {
+          grouped.enemySpawns.push({
+            x: col,
+            y: row,
+            enemyId: mapEnemyObjectToEngineEnemyId(objectId)
+          });
+        }
+      }
+    }
+
+    return grouped;
+  }
+
+  function resolveSpawnFromObjects(mappedTiles) {
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
+        if (state.objectLayer[row][col] === OBJECT_IDS.player_start) {
+          return { x: col, y: row };
+        }
+      }
+    }
+
+    return findFallbackSpawn(mappedTiles);
+  }
+
+  function findFallbackSpawn(mappedTiles) {
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
+        const tileId = mappedTiles[row][col];
+        if (tileId.indexOf('wall_') !== 0) {
+          return { x: col, y: row };
+        }
+      }
+    }
+    return { x: 0, y: 0 };
+  }
+
+  function isPortalObject(objectId) {
+    return objectId === OBJECT_IDS.portal_level ||
+      objectId === OBJECT_IDS.portal_town ||
+      objectId === OBJECT_IDS.portal_world ||
+      objectId === OBJECT_IDS.return_portal ||
+      objectId === OBJECT_IDS.boss_exit ||
+      objectId === OBJECT_IDS.locked_portal ||
+      objectId === OBJECT_IDS.town_portal ||
+      objectId === OBJECT_IDS.exit_marker;
+  }
+
+  function isShopObject(objectId) {
+    return objectId === OBJECT_IDS.blacksmith ||
+      objectId === OBJECT_IDS.armor_shop ||
+      objectId === OBJECT_IDS.potion_shop ||
+      objectId === OBJECT_IDS.general_shop ||
+      objectId === OBJECT_IDS.special_shop;
+  }
+
+  function mapShopObjectToEngineShopId(objectId) {
+    if (objectId === OBJECT_IDS.blacksmith) return 'shop_blacksmith_t1';
+    if (objectId === OBJECT_IDS.special_shop) return 'shop_rare_t2';
+    if (objectId === OBJECT_IDS.potion_shop) return 'shop_potion_t1';
+    if (objectId === OBJECT_IDS.armor_shop) return 'shop_blacksmith_t1';
+    if (objectId === OBJECT_IDS.general_shop) return 'shop_potion_t1';
+    return 'shop_potion_t1';
+  }
+
+  function isEnemySpawnObject(objectId) {
+    return objectId === OBJECT_IDS.enemy_spawn_basic ||
+      objectId === OBJECT_IDS.enemy_spawn_ranged ||
+      objectId === OBJECT_IDS.enemy_spawn_tank ||
+      objectId === OBJECT_IDS.enemy_spawn_swarm ||
+      objectId === OBJECT_IDS.enemy_spawn_runner ||
+      objectId === OBJECT_IDS.enemy_spawn_elite ||
+      objectId === OBJECT_IDS.enemy_spawn_boss ||
+      objectId === OBJECT_IDS.ambush_spawn;
+  }
+
+  function mapEnemyObjectToEngineEnemyId(objectId) {
+    if (objectId === OBJECT_IDS.enemy_spawn_tank || objectId === OBJECT_IDS.enemy_spawn_boss) {
+      return 'guardian_golem';
+    }
+    if (objectId === OBJECT_IDS.enemy_spawn_ranged || objectId === OBJECT_IDS.enemy_spawn_runner || objectId === OBJECT_IDS.enemy_spawn_elite) {
+      return 'wolf_runner';
+    }
+    return 'slime_green';
   }
 
   function importMapFromFile(file) {
