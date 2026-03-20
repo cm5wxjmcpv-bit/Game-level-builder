@@ -42,12 +42,16 @@
       </div>
 
       <h2>Tiles & Tools</h2>
-      <div id="palette" class="palette" aria-label="Tile palette"></div>
+      <div class="tool-row tool-grid">
+        <button id="layerTileBtn" type="button" class="secondary-btn">Tile Layer</button>
+        <button id="layerObjectBtn" type="button" class="secondary-btn">Object Layer</button>
+      </div>
+      <div id="palette" class="palette-groups" aria-label="Grouped palette"></div>
 
       <div class="tool-row tool-grid">
         <button id="paintToolBtn" type="button" class="secondary-btn">Paint Tool</button>
         <button id="fillToolBtn" type="button" class="secondary-btn">Fill Tool</button>
-        <button id="eraserBtn" type="button" class="secondary-btn">Eraser (Tile 0)</button>
+        <button id="eraserBtn" type="button" class="secondary-btn">Eraser</button>
       </div>
 
       <h2>Map Actions</h2>
@@ -62,6 +66,7 @@
 
       <div class="status-box">
         <p><strong>Map:</strong> <span id="mapTypeLabel">level</span> (<span id="mapIdLabel">level_001</span>)</p>
+        <p><strong>Layer:</strong> <span id="activeLayerLabel">Tile Layer</span></p>
         <p><strong>Selected:</strong> <span id="selectedToolLabel">None</span></p>
         <p><strong>Tool:</strong> <span id="activeToolLabel">Paint</span></p>
         <p><strong>Grid Size:</strong> <span id="gridSizeLabel">0</span> x <span id="gridSizeLabel2">0</span></p>

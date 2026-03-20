@@ -5,36 +5,57 @@
   const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
 
-  const TILE_DEFINITIONS = [
-    { id: 0, label: 'Empty', category: 'base', color: '#e9edf3' },
-    { id: 10, label: 'Floor - Stone', category: 'floor', color: '#d3be95' },
-    { id: 11, label: 'Floor - Wood', category: 'floor', color: '#c4b0e2' },
-    { id: 12, label: 'Floor - Grass', category: 'floor', color: '#9ac8b4' },
-    { id: 13, label: 'Floor - Sand', category: 'floor', color: '#ebd089' },
-    { id: 1, label: 'Wall', category: 'barrier', color: '#4c5563' },
-    { id: 7, label: 'Bridge', category: 'specialTile', color: '#8f6a3b' },
-    { id: 2, label: 'Water', category: 'hazard', color: '#2a78c8' },
-    { id: 3, label: 'Lava', category: 'hazard', color: '#e65032' },
-    { id: 21, label: 'Swamp', category: 'hazard', color: '#5e7f45' },
-    { id: 4, label: 'Player Start', category: 'levelObject', color: '#26a05f' },
-    { id: 5, label: 'Portal', category: 'object', color: '#6c4ad2' },
-    { id: 6, label: 'Enemy Spawn', category: 'levelObject', color: '#8b5a2b' },
-    { id: 100, label: 'Blacksmith', category: 'townObject', color: '#b45309' },
-    { id: 101, label: 'Armor Shop', category: 'townObject', color: '#7c3aed' },
-    { id: 102, label: 'Potion Shop', category: 'townObject', color: '#be185d' },
-    { id: 103, label: 'Special Shop', category: 'townObject', color: '#9333ea' },
-    { id: 104, label: 'General Shop', category: 'townObject', color: '#0f766e' },
-    { id: 105, label: 'Healing Fountain', category: 'townObject', color: '#0ea5e9' },
-    { id: 106, label: 'NPC / Interaction', category: 'townObject', color: '#64748b' },
-    { id: 120, label: 'Chest Marker', category: 'specialObject', color: '#92400e' },
-    { id: 121, label: 'Trigger Marker', category: 'specialObject', color: '#1d4ed8' },
-    { id: 122, label: 'Boss Marker', category: 'specialObject', color: '#991b1b' }
-  ];
+  const ID_COLORS = {
+    empty: '#e9edf3',
+    floor_stone: '#d3be95',
+    floor_wood: '#c4b0e2',
+    floor_grass: '#9ac8b4',
+    floor_sand: '#ebd089',
+    wall_stone: '#4c5563',
+    bridge: '#8f6a3b',
+    water: '#2a78c8',
+    lava: '#e65032',
+    swamp: '#5e7f45',
+    player_start: '#22c55e',
+    portal_level: '#6c4ad2',
+    enemy_spawn_basic: '#8b5a2b',
+    blacksmith: '#b45309',
+    armor_shop: '#7c3aed',
+    potion_shop: '#be185d',
+    special_shop: '#9333ea',
+    general_shop: '#0f766e',
+    fountain: '#0ea5e9',
+    npc_spot: '#64748b',
+    chest_common: '#92400e',
+    trigger_marker: '#1d4ed8',
+    enemy_spawn_boss: '#991b1b'
+  };
 
-  const TILE_DEFS_BY_ID = TILE_DEFINITIONS.reduce(function (acc, tile) {
-    acc[tile.id] = tile;
-    return acc;
-  }, {});
+  const LEGACY_ID_TO_TYPE = {
+    0: 'empty',
+    1: 'wall_stone',
+    2: 'water',
+    3: 'lava',
+    4: 'player_start',
+    5: 'portal_level',
+    6: 'enemy_spawn_basic',
+    7: 'bridge',
+    10: 'floor_stone',
+    11: 'floor_wood',
+    12: 'floor_grass',
+    13: 'floor_sand',
+    21: 'swamp',
+    100: 'blacksmith',
+    101: 'armor_shop',
+    102: 'potion_shop',
+    103: 'special_shop',
+    104: 'general_shop',
+    105: 'fountain',
+    106: 'npc_spot',
+    120: 'chest_common',
+    121: 'trigger_marker',
+    122: 'enemy_spawn_boss'
+  };
 
   const dom = {
     viewerGridContainer: document.getElementById('viewerGridContainer'),
@@ -54,7 +75,8 @@
     height: DEFAULT_HEIGHT,
     mapType: 'level',
     mapId: 'unknown',
-    tiles: createEmptyTileGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+    tileLayer: createLayerGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT, 'empty'),
+    objectLayer: createLayerGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT, 'none')
   };
 
   initialize();
@@ -67,9 +89,9 @@
     updateStatus('Viewer ready. Load a JSON file or load preview from builder.');
   }
 
-  function createEmptyTileGrid(width, height) {
+  function createLayerGrid(width, height, value) {
     return Array.from({ length: height }, function () {
-      return Array(width).fill(0);
+      return Array(width).fill(value);
     });
   }
 
@@ -104,11 +126,7 @@
 
   function renderLegend() {
     dom.viewerTileLegend.innerHTML = '';
-    TILE_DEFINITIONS.forEach(function (tile) {
-      const li = document.createElement('li');
-      li.textContent = tile.id + ' = ' + tile.label + ' [' + tile.category + ']';
-      dom.viewerTileLegend.appendChild(li);
-    });
+    dom.viewerTileLegend.innerHTML = '<li>Tile colors = tile layer, colored dot = object/marker layer.</li>';
   }
 
   function renderGrid() {
@@ -119,12 +137,16 @@
     for (let row = 0; row < state.height; row += 1) {
       for (let col = 0; col < state.width; col += 1) {
         const cell = document.createElement('div');
+        const marker = document.createElement('span');
+        marker.className = 'cell-marker';
         cell.className = 'cell';
-        cell.dataset.row = String(row);
-        cell.dataset.col = String(col);
-        const tileId = state.tiles[row][col];
-        cell.dataset.tileId = String(tileId);
-        cell.style.backgroundColor = getTileColor(tileId);
+        const tileId = state.tileLayer[row][col];
+        const objectId = state.objectLayer[row][col];
+        cell.style.backgroundColor = getColor(tileId, '#9ca3af');
+        marker.textContent = objectId !== 'none' ? '●' : '';
+        marker.style.color = objectId !== 'none' ? getColor(objectId, '#7c3aed') : 'transparent';
+        marker.title = objectId !== 'none' ? objectId : '';
+        cell.appendChild(marker);
         dom.viewerGridContainer.appendChild(cell);
       }
     }
@@ -134,11 +156,8 @@
     updateMapLabels();
   }
 
-  function getTileColor(tileId) {
-    if (Object.prototype.hasOwnProperty.call(TILE_DEFS_BY_ID, tileId)) {
-      return TILE_DEFS_BY_ID[tileId].color;
-    }
-    return '#9ca3af';
+  function getColor(id, fallback) {
+    return Object.prototype.hasOwnProperty.call(ID_COLORS, id) ? ID_COLORS[id] : fallback;
   }
 
   function importMapFromFile(file) {
@@ -166,7 +185,7 @@
       throw new Error('JSON must be an object.');
     }
 
-    if (data.formatVersion === 2 && data.map) {
+    if (data.map && typeof data.map === 'object') {
       return normalizeMapLikeObject(data.map);
     }
 
@@ -176,36 +195,94 @@
   function normalizeMapLikeObject(mapData) {
     const width = Number.isInteger(mapData.width) ? mapData.width : Number.isInteger(mapData.gridSize) ? mapData.gridSize : null;
     const height = Number.isInteger(mapData.height) ? mapData.height : Number.isInteger(mapData.gridSize) ? mapData.gridSize : null;
-    const tiles = mapData.tiles;
 
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
       throw new Error('width/height (or gridSize) must be positive integers.');
     }
 
-    if (!Array.isArray(tiles) || tiles.length !== height) {
+    const tileSource = Array.isArray(mapData.tileLayer) ? mapData.tileLayer : mapData.tiles;
+    if (!Array.isArray(tileSource) || tileSource.length !== height) {
       throw new Error('tiles must be an array with exactly height rows.');
     }
 
-    const normalizedTiles = tiles.map(function (row) {
+    const tileLayer = tileSource.map(function (row) {
       if (!Array.isArray(row) || row.length !== width) {
-        throw new Error('Each tiles row must have exactly width columns.');
+        throw new Error('Each tile row must have exactly width columns.');
       }
-
-      return row.map(function (tileId) {
-        if (!Number.isInteger(tileId)) {
-          throw new Error('Tile IDs must be integers.');
-        }
-        return tileId;
+      return row.map(function (entry) {
+        return normalizeTile(entry);
       });
     });
+
+    let objectLayer = createLayerGrid(width, height, 'none');
+
+    if (Array.isArray(mapData.objectLayer) && mapData.objectLayer.length === height) {
+      objectLayer = mapData.objectLayer.map(function (row) {
+        if (!Array.isArray(row) || row.length !== width) {
+          throw new Error('Each object row must have exactly width columns.');
+        }
+        return row.map(function (entry) {
+          return normalizeObject(entry);
+        });
+      });
+    } else if (Array.isArray(mapData.objects)) {
+      mapData.objects.forEach(function (entry) {
+        if (entry && Number.isInteger(entry.x) && Number.isInteger(entry.y) && entry.x >= 0 && entry.x < width && entry.y >= 0 && entry.y < height) {
+          objectLayer[entry.y][entry.x] = normalizeObject(entry.id);
+        }
+      });
+    } else {
+      for (let row = 0; row < height; row += 1) {
+        for (let col = 0; col < width; col += 1) {
+          const normalized = normalizeLegacyCombined(tileSource[row][col]);
+          tileLayer[row][col] = normalized.tile;
+          objectLayer[row][col] = normalized.object;
+        }
+      }
+    }
 
     return {
       width: width,
       height: height,
       mapType: mapData.type === 'town' || mapData.mapType === 'town' ? 'town' : 'level',
       mapId: String(mapData.id || mapData.mapId || 'imported_map'),
-      tiles: normalizedTiles
+      tileLayer: tileLayer,
+      objectLayer: objectLayer
     };
+  }
+
+  function normalizeLegacyCombined(value) {
+    const normalized = typeof value === 'number' ? LEGACY_ID_TO_TYPE[value] : value;
+    if (typeof normalized !== 'string') {
+      return { tile: 'empty', object: 'none' };
+    }
+    if (normalized.indexOf('floor_') === 0 || normalized.indexOf('wall_') === 0 || normalized === 'empty' || normalized === 'bridge' || normalized === 'water' || normalized === 'lava' || normalized === 'swamp') {
+      return { tile: normalized, object: 'none' };
+    }
+    return { tile: 'empty', object: normalized };
+  }
+
+  function normalizeTile(value) {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Number.isInteger(value)) {
+      const mapped = LEGACY_ID_TO_TYPE[value];
+      if (mapped) {
+        return normalizeLegacyCombined(mapped).tile;
+      }
+    }
+    return 'empty';
+  }
+
+  function normalizeObject(value) {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Number.isInteger(value) && LEGACY_ID_TO_TYPE[value]) {
+      return normalizeLegacyCombined(LEGACY_ID_TO_TYPE[value]).object;
+    }
+    return 'none';
   }
 
   function applyImportedPayload(normalized, successMessage) {
@@ -213,7 +290,8 @@
     state.height = normalized.height;
     state.mapType = normalized.mapType;
     state.mapId = normalized.mapId;
-    state.tiles = normalized.tiles;
+    state.tileLayer = normalized.tileLayer;
+    state.objectLayer = normalized.objectLayer;
 
     renderGrid();
     updateStatus(successMessage);
