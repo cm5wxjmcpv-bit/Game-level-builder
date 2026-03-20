@@ -1,32 +1,55 @@
 (function () {
   'use strict';
 
-  const DEFAULT_GRID_SIZE = 30;
-  const TILE_SIZE = 100;
+  const DEFAULT_WIDTH = 30;
+  const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
+  const MAX_MAP_SIDE = 200;
 
-  const TILE_DEFS = {
-    0: { label: 'Empty', id: 0, unique: false },
-    1: { label: 'Wall', id: 1, unique: false },
-    2: { label: 'Water', id: 2, unique: false },
-    3: { label: 'Lava', id: 3, unique: false },
-    4: { label: 'Spawn', id: 4, unique: true },
-    5: { label: 'Portal', id: 5, unique: true },
-    6: { label: 'Enemy Camp', id: 6, unique: false },
-    7: { label: 'Bridge', id: 7, unique: false },
-    10: { label: 'Floor 1', id: 10, unique: false },
-    11: { label: 'Floor 2', id: 11, unique: false },
-    12: { label: 'Floor 3', id: 12, unique: false }
-  };
+  const TILE_DEFINITIONS = [
+    { id: 0, label: 'Empty', category: 'base', color: '#e9edf3', mapTypes: ['level', 'town'] },
 
-  const PALETTE_ORDER = [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12];
-  const UNIQUE_TILE_IDS = [4, 5];
+    { id: 10, label: 'Floor - Stone', category: 'floor', color: '#d3be95', mapTypes: ['level', 'town'] },
+    { id: 11, label: 'Floor - Wood', category: 'floor', color: '#c4b0e2', mapTypes: ['level', 'town'] },
+    { id: 12, label: 'Floor - Grass', category: 'floor', color: '#9ac8b4', mapTypes: ['level', 'town'] },
+    { id: 13, label: 'Floor - Sand', category: 'floor', color: '#ebd089', mapTypes: ['level', 'town'] },
+
+    { id: 1, label: 'Wall', category: 'barrier', color: '#4c5563', mapTypes: ['level', 'town'] },
+    { id: 7, label: 'Bridge', category: 'specialTile', color: '#8f6a3b', mapTypes: ['level', 'town'] },
+
+    { id: 2, label: 'Water', category: 'hazard', color: '#2a78c8', mapTypes: ['level', 'town'], effect: 'water' },
+    { id: 3, label: 'Lava', category: 'hazard', color: '#e65032', mapTypes: ['level'], effect: 'lava' },
+    { id: 21, label: 'Swamp', category: 'hazard', color: '#5e7f45', mapTypes: ['level'], effect: 'swamp' },
+
+    { id: 4, label: 'Player Start', category: 'levelObject', color: '#26a05f', mapTypes: ['level'], unique: true, objectType: 'player_start' },
+    { id: 5, label: 'Portal', category: 'object', color: '#6c4ad2', mapTypes: ['level', 'town'], objectType: 'portal' },
+    { id: 6, label: 'Enemy Spawn', category: 'levelObject', color: '#8b5a2b', mapTypes: ['level'], objectType: 'enemy_spawn' },
+
+    { id: 100, label: 'Blacksmith', category: 'townObject', color: '#b45309', mapTypes: ['town'], objectType: 'shop', shopType: 'blacksmith' },
+    { id: 101, label: 'Armor Shop', category: 'townObject', color: '#7c3aed', mapTypes: ['town'], objectType: 'shop', shopType: 'armor' },
+    { id: 102, label: 'Potion Shop', category: 'townObject', color: '#be185d', mapTypes: ['town'], objectType: 'shop', shopType: 'potion' },
+    { id: 103, label: 'Special Shop', category: 'townObject', color: '#9333ea', mapTypes: ['town'], objectType: 'shop', shopType: 'special' },
+    { id: 104, label: 'General Shop', category: 'townObject', color: '#0f766e', mapTypes: ['town'], objectType: 'shop', shopType: 'general' },
+    { id: 105, label: 'Healing Fountain', category: 'townObject', color: '#0ea5e9', mapTypes: ['town'], unique: true, objectType: 'fountain' },
+    { id: 106, label: 'NPC / Interaction', category: 'townObject', color: '#64748b', mapTypes: ['town'], objectType: 'interaction' },
+
+    { id: 120, label: 'Chest Marker', category: 'specialObject', color: '#92400e', mapTypes: ['level'], objectType: 'special', specialType: 'chest' },
+    { id: 121, label: 'Trigger Marker', category: 'specialObject', color: '#1d4ed8', mapTypes: ['level', 'town'], objectType: 'special', specialType: 'trigger' },
+    { id: 122, label: 'Boss Marker', category: 'specialObject', color: '#991b1b', mapTypes: ['level'], objectType: 'special', specialType: 'boss' }
+  ];
+
+  const TILE_DEFS_BY_ID = buildTileDefinitionMap(TILE_DEFINITIONS);
 
   const dom = {
     gridContainer: document.getElementById('gridContainer'),
     palette: document.getElementById('palette'),
     eraserBtn: document.getElementById('eraserBtn'),
+    paintToolBtn: document.getElementById('paintToolBtn'),
+    fillToolBtn: document.getElementById('fillToolBtn'),
     selectedToolLabel: document.getElementById('selectedToolLabel'),
+    activeToolLabel: document.getElementById('activeToolLabel'),
+    mapTypeLabel: document.getElementById('mapTypeLabel'),
+    mapIdLabel: document.getElementById('mapIdLabel'),
     gridSizeLabel: document.getElementById('gridSizeLabel'),
     gridSizeLabel2: document.getElementById('gridSizeLabel2'),
     message: document.getElementById('message'),
@@ -35,13 +58,24 @@
     exportGameBtn: document.getElementById('exportGameBtn'),
     importInput: document.getElementById('importInput'),
     clearBtn: document.getElementById('clearBtn'),
-    openViewerBtn: document.getElementById('openViewerBtn')
+    openViewerBtn: document.getElementById('openViewerBtn'),
+    mapTypeSelect: document.getElementById('mapTypeSelect'),
+    mapIdInput: document.getElementById('mapIdInput'),
+    mapNameInput: document.getElementById('mapNameInput'),
+    mapWidthInput: document.getElementById('mapWidthInput'),
+    mapHeightInput: document.getElementById('mapHeightInput'),
+    applySizeBtn: document.getElementById('applySizeBtn')
   };
 
   const state = {
-    gridSize: DEFAULT_GRID_SIZE,
-    tiles: createEmptyTileGrid(DEFAULT_GRID_SIZE),
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
+    mapType: 'level',
+    mapId: 'level_001',
+    mapName: 'Starter Level',
+    tiles: createEmptyTileGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT),
     selectedTileId: 1,
+    activeTool: 'paint',
     isPainting: false,
     lastPaintedCellKey: ''
   };
@@ -50,76 +84,111 @@
 
   function initialize() {
     renderPalette();
-    renderLegend(dom.tileLegend);
+    renderLegend();
     renderGrid();
     bindEvents();
     setSelectedTile(1);
+    updateActiveToolButtonState();
+    syncMapInputsFromState();
+    updateMapLabels();
     updateStatus('Ready. Click or drag on the grid to paint tiles.');
   }
 
-  function createEmptyTileGrid(gridSize) {
-    return Array.from({ length: gridSize }, function () {
-      return Array(gridSize).fill(0);
+  function buildTileDefinitionMap(definitions) {
+    return definitions.reduce(function (acc, entry) {
+      acc[entry.id] = entry;
+      return acc;
+    }, {});
+  }
+
+  function createEmptyTileGrid(width, height) {
+    return Array.from({ length: height }, function () {
+      return Array(width).fill(0);
+    });
+  }
+
+  function cloneTiles(tiles) {
+    return tiles.map(function (row) {
+      return row.slice();
+    });
+  }
+
+  function getVisiblePaletteDefinitions() {
+    return TILE_DEFINITIONS.filter(function (tile) {
+      return tile.mapTypes.indexOf(state.mapType) !== -1;
     });
   }
 
   function renderPalette() {
+    const visibleTiles = getVisiblePaletteDefinitions();
     dom.palette.innerHTML = '';
 
-    PALETTE_ORDER.forEach(function (tileId) {
-      const tile = TILE_DEFS[tileId];
+    visibleTiles.forEach(function (tile) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'tile-btn';
-      btn.dataset.tileId = String(tileId);
-      btn.setAttribute('aria-label', 'Select tile ' + tile.label + ' (ID ' + tileId + ')');
+      btn.dataset.tileId = String(tile.id);
+      btn.setAttribute('aria-label', 'Select tile ' + tile.label + ' (ID ' + tile.id + ')');
 
       const colorDot = document.createElement('span');
       colorDot.className = 'tile-color-dot';
-      colorDot.style.background = getTileColor(tileId);
+      colorDot.style.background = tile.color;
 
       const text = document.createElement('span');
-      text.textContent = tile.label + ' (' + tileId + ')';
+      text.textContent = tile.label + ' (' + tile.id + ')';
 
       btn.appendChild(colorDot);
       btn.appendChild(text);
-
       btn.addEventListener('click', function () {
-        setSelectedTile(tileId);
+        setSelectedTile(tile.id);
       });
 
       dom.palette.appendChild(btn);
     });
+
+    highlightActivePaletteButton();
   }
 
-  function renderLegend(target) {
-    target.innerHTML = '';
-    PALETTE_ORDER.forEach(function (tileId) {
-      const tile = TILE_DEFS[tileId];
+  function renderLegend() {
+    dom.tileLegend.innerHTML = '';
+
+    getVisiblePaletteDefinitions().forEach(function (tile) {
       const li = document.createElement('li');
-      li.textContent = tileId + ' = ' + tile.label;
-      target.appendChild(li);
+      li.textContent = tile.id + ' = ' + tile.label + ' [' + tile.category + ']';
+      dom.tileLegend.appendChild(li);
     });
   }
 
   function renderGrid() {
-    const size = state.gridSize;
     dom.gridContainer.innerHTML = '';
-    dom.gridContainer.style.setProperty('--grid-size', String(size));
+    dom.gridContainer.style.setProperty('--grid-width', String(state.width));
+    dom.gridContainer.style.setProperty('--grid-height', String(state.height));
 
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.row = String(row);
         cell.dataset.col = String(col);
-        cell.dataset.tileId = String(state.tiles[row][col]);
+        setCellTileStyle(cell, state.tiles[row][col]);
         dom.gridContainer.appendChild(cell);
       }
     }
 
-    dom.gridSizeLabel.textContent = String(size);
-    dom.gridSizeLabel2.textContent = String(size);
+    dom.gridSizeLabel.textContent = String(state.width);
+    dom.gridSizeLabel2.textContent = String(state.height);
+  }
+
+  function setCellTileStyle(cell, tileId) {
+    cell.dataset.tileId = String(tileId);
+    cell.style.backgroundColor = getTileColor(tileId);
+  }
+
+  function getTileColor(tileId) {
+    if (Object.prototype.hasOwnProperty.call(TILE_DEFS_BY_ID, tileId)) {
+      return TILE_DEFS_BY_ID[tileId].color;
+    }
+    return '#9ca3af';
   }
 
   function bindEvents() {
@@ -135,7 +204,7 @@
     });
 
     dom.gridContainer.addEventListener('mouseover', function (event) {
-      if (!state.isPainting) {
+      if (!state.isPainting || state.activeTool !== 'paint') {
         return;
       }
       const cell = getCellFromEventTarget(event.target);
@@ -160,10 +229,42 @@
 
     dom.eraserBtn.addEventListener('click', function () {
       setSelectedTile(0);
+      state.activeTool = 'paint';
+      updateActiveToolButtonState();
+    });
+
+    dom.paintToolBtn.addEventListener('click', function () {
+      state.activeTool = 'paint';
+      updateActiveToolButtonState();
+    });
+
+    dom.fillToolBtn.addEventListener('click', function () {
+      state.activeTool = 'fill';
+      updateActiveToolButtonState();
+    });
+
+    dom.applySizeBtn.addEventListener('click', applySizeFromInputs);
+
+    dom.mapTypeSelect.addEventListener('change', function () {
+      state.mapType = dom.mapTypeSelect.value;
+      renderPalette();
+      renderLegend();
+      ensureSelectedTileIsVisible();
+      updateMapLabels();
+      updateStatus('Map type set to ' + state.mapType + '.');
+    });
+
+    dom.mapIdInput.addEventListener('input', function () {
+      state.mapId = normalizeMapId(dom.mapIdInput.value);
+      updateMapLabels();
+    });
+
+    dom.mapNameInput.addEventListener('input', function () {
+      state.mapName = dom.mapNameInput.value.trim() || 'Untitled Map';
     });
 
     dom.exportBtn.addEventListener('click', exportRawMapToFile);
-    dom.exportGameBtn.addEventListener('click', exportGameLevelToFile);
+    dom.exportGameBtn.addEventListener('click', exportEngineMapToFile);
 
     dom.importInput.addEventListener('change', function (event) {
       if (!event.target.files || !event.target.files[0]) {
@@ -178,13 +279,13 @@
       if (!confirmed) {
         return;
       }
-      state.tiles = createEmptyTileGrid(state.gridSize);
+      state.tiles = createEmptyTileGrid(state.width, state.height);
       renderGrid();
       updateStatus('Map cleared.');
     });
 
     dom.openViewerBtn.addEventListener('click', function () {
-      const payload = serializeMap();
+      const payload = serializeEngineMap();
       try {
         window.localStorage.setItem(STORAGE_PREVIEW_KEY, JSON.stringify(payload));
       } catch (storageError) {
@@ -193,12 +294,70 @@
       }
       window.location.href = 'viewer.html';
     });
+  }
 
-    document.addEventListener('dragstart', function (event) {
-      if (event.target && event.target.classList && event.target.classList.contains('cell')) {
-        event.preventDefault();
+  function updateMapLabels() {
+    dom.mapTypeLabel.textContent = state.mapType;
+    dom.mapIdLabel.textContent = state.mapId;
+  }
+
+  function syncMapInputsFromState() {
+    dom.mapTypeSelect.value = state.mapType;
+    dom.mapIdInput.value = state.mapId;
+    dom.mapNameInput.value = state.mapName;
+    dom.mapWidthInput.value = String(state.width);
+    dom.mapHeightInput.value = String(state.height);
+  }
+
+  function normalizeMapId(inputValue) {
+    const cleaned = String(inputValue || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-]/g, '_')
+      .replace(/_+/g, '_');
+    return cleaned || 'map_' + state.mapType;
+  }
+
+  function applySizeFromInputs() {
+    const nextWidth = Number(dom.mapWidthInput.value);
+    const nextHeight = Number(dom.mapHeightInput.value);
+
+    if (!Number.isInteger(nextWidth) || !Number.isInteger(nextHeight) || nextWidth < 1 || nextHeight < 1) {
+      updateStatus('Map width and height must be positive integers.', true);
+      return;
+    }
+
+    if (nextWidth > MAX_MAP_SIDE || nextHeight > MAX_MAP_SIDE) {
+      updateStatus('Map size limit is ' + MAX_MAP_SIDE + ' x ' + MAX_MAP_SIDE + '.', true);
+      return;
+    }
+
+    resizeMap(nextWidth, nextHeight);
+  }
+
+  function resizeMap(nextWidth, nextHeight) {
+    const oldWidth = state.width;
+    const oldHeight = state.height;
+    const nextTiles = createEmptyTileGrid(nextWidth, nextHeight);
+
+    const copyHeight = Math.min(oldHeight, nextHeight);
+    const copyWidth = Math.min(oldWidth, nextWidth);
+
+    for (let row = 0; row < copyHeight; row += 1) {
+      for (let col = 0; col < copyWidth; col += 1) {
+        nextTiles[row][col] = state.tiles[row][col];
       }
-    });
+    }
+
+    state.width = nextWidth;
+    state.height = nextHeight;
+    state.tiles = nextTiles;
+
+    renderGrid();
+    syncMapInputsFromState();
+
+    const actionText = nextWidth >= oldWidth && nextHeight >= oldHeight ? 'expanded' : 'resized';
+    updateStatus('Map ' + actionText + ' to ' + nextWidth + ' x ' + nextHeight + '. Existing area preserved.');
   }
 
   function getCellFromEventTarget(target) {
@@ -216,6 +375,13 @@
       return;
     }
 
+    if (state.activeTool === 'fill') {
+      applyFillAt(row, col, state.selectedTileId);
+      renderGrid();
+      updateStatus('Fill applied from (' + col + ', ' + row + ').');
+      return;
+    }
+
     const currentKey = row + ',' + col;
     if (state.lastPaintedCellKey === currentKey && state.isPainting) {
       return;
@@ -223,24 +389,62 @@
     state.lastPaintedCellKey = currentKey;
 
     applyTileAt(row, col, state.selectedTileId);
-    cell.dataset.tileId = String(state.tiles[row][col]);
+    setCellTileStyle(cell, state.tiles[row][col]);
+  }
+
+  function applyFillAt(startRow, startCol, tileId) {
+    const targetTileId = state.tiles[startRow][startCol];
+    if (targetTileId === tileId) {
+      return;
+    }
+
+    const queue = [[startRow, startCol]];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const row = current[0];
+      const col = current[1];
+      const key = row + ',' + col;
+
+      if (visited.has(key)) {
+        continue;
+      }
+      visited.add(key);
+
+      if (!isInsideMap(col, row) || state.tiles[row][col] !== targetTileId) {
+        continue;
+      }
+
+      applyTileAt(row, col, tileId);
+
+      queue.push([row - 1, col]);
+      queue.push([row + 1, col]);
+      queue.push([row, col - 1]);
+      queue.push([row, col + 1]);
+    }
   }
 
   function applyTileAt(row, col, tileId) {
-    if (UNIQUE_TILE_IDS.indexOf(tileId) !== -1) {
+    if (!isInsideMap(col, row)) {
+      return;
+    }
+
+    const def = TILE_DEFS_BY_ID[tileId];
+    if (def && def.unique) {
       clearExistingUniqueTile(tileId);
     }
 
     state.tiles[row][col] = tileId;
+  }
 
-    if (UNIQUE_TILE_IDS.indexOf(tileId) !== -1) {
-      repaintAllCells();
-    }
+  function isInsideMap(col, row) {
+    return row >= 0 && row < state.height && col >= 0 && col < state.width;
   }
 
   function clearExistingUniqueTile(tileId) {
-    for (let row = 0; row < state.gridSize; row += 1) {
-      for (let col = 0; col < state.gridSize; col += 1) {
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
         if (state.tiles[row][col] === tileId) {
           state.tiles[row][col] = 0;
         }
@@ -248,62 +452,141 @@
     }
   }
 
-  function repaintAllCells() {
-    const cells = dom.gridContainer.querySelectorAll('.cell');
-    cells.forEach(function (cell) {
-      const row = Number(cell.dataset.row);
-      const col = Number(cell.dataset.col);
-      cell.dataset.tileId = String(state.tiles[row][col]);
-    });
-  }
-
   function setSelectedTile(tileId) {
     state.selectedTileId = tileId;
+    const tile = TILE_DEFS_BY_ID[tileId];
+    const name = tile ? tile.label : 'Unknown';
+    dom.selectedToolLabel.textContent = name + ' (ID ' + tileId + ')';
+    highlightActivePaletteButton();
+  }
 
-    const tileButtons = dom.palette.querySelectorAll('.tile-btn');
-    tileButtons.forEach(function (btn) {
-      const isActive = Number(btn.dataset.tileId) === tileId;
-      btn.classList.toggle('active', isActive);
+  function ensureSelectedTileIsVisible() {
+    const visibleIds = getVisiblePaletteDefinitions().map(function (tile) {
+      return tile.id;
     });
-
-    dom.eraserBtn.classList.toggle('active', tileId === 0);
-    const selected = TILE_DEFS[tileId] ? TILE_DEFS[tileId].label : 'Unknown';
-    dom.selectedToolLabel.textContent = selected + ' (ID ' + tileId + ')';
-  }
-
-  function exportRawMapToFile() {
-    const payload = serializeMap();
-    const text = JSON.stringify(payload, null, 2);
-
-    downloadTextAsFile(text, 'level-' + payload.gridSize + 'x' + payload.gridSize + '.json');
-    updateStatus('Raw map exported as JSON.');
-  }
-
-  function exportGameLevelToFile() {
-    try {
-      normalizeUniqueTilesInState();
-      const gameLevel = buildGameLevelObject();
-      const text = JSON.stringify(gameLevel, null, 2);
-      downloadTextAsFile(text, 'game-level-' + gameLevel.id + '.json');
-      updateStatus('Game level exported successfully.');
-      repaintAllCells();
-    } catch (error) {
-      updateStatus('Game export failed: ' + error.message, true);
+    if (visibleIds.indexOf(state.selectedTileId) === -1) {
+      setSelectedTile(0);
     }
   }
 
-  function downloadTextAsFile(text, filename) {
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+  function highlightActivePaletteButton() {
+    const buttons = dom.palette.querySelectorAll('.tile-btn');
+    buttons.forEach(function (btn) {
+      const isSelected = Number(btn.dataset.tileId) === state.selectedTileId;
+      btn.classList.toggle('active', isSelected);
+    });
+  }
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  function updateActiveToolButtonState() {
+    dom.paintToolBtn.classList.toggle('active', state.activeTool === 'paint');
+    dom.fillToolBtn.classList.toggle('active', state.activeTool === 'fill');
+    dom.activeToolLabel.textContent = state.activeTool === 'fill' ? 'Fill' : 'Paint';
+  }
 
-    URL.revokeObjectURL(url);
+  function exportRawMapToFile() {
+    const rawPayload = {
+      gridSize: state.width === state.height ? state.width : undefined,
+      width: state.width,
+      height: state.height,
+      mapType: state.mapType,
+      mapId: state.mapId,
+      mapName: state.mapName,
+      tiles: cloneTiles(state.tiles)
+    };
+
+    if (rawPayload.gridSize === undefined) {
+      delete rawPayload.gridSize;
+    }
+
+    downloadJsonFile(rawPayload, state.mapId + '_raw.json');
+    updateStatus('Raw map JSON exported.');
+  }
+
+  function exportEngineMapToFile() {
+    const payload = serializeEngineMap();
+    downloadJsonFile(payload, state.mapId + '_engine.json');
+    updateStatus('Engine-ready JSON exported.');
+  }
+
+  function serializeEngineMap() {
+    const placements = collectPlacementsFromTiles();
+    const tileMetadata = collectTileMetadata();
+
+    return {
+      formatVersion: 2,
+      map: {
+        id: state.mapId,
+        name: state.mapName,
+        type: state.mapType,
+        width: state.width,
+        height: state.height,
+        tileset: 'default',
+        textureMappingHint: 'Use tile ID mapping in engine texture packs.',
+        tiles: cloneTiles(state.tiles),
+        tileMetadata: tileMetadata,
+        placements: placements,
+        future: {
+          npcSpawns: [],
+          scriptedEvents: [],
+          triggers: []
+        }
+      }
+    };
+  }
+
+  function collectTileMetadata() {
+    const metadata = [];
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
+        const tileId = state.tiles[row][col];
+        const def = TILE_DEFS_BY_ID[tileId];
+        if (!def || !def.effect) {
+          continue;
+        }
+        metadata.push({ x: col, y: row, effect: def.effect, tileId: tileId });
+      }
+    }
+    return metadata;
+  }
+
+  function collectPlacementsFromTiles() {
+    const placements = {
+      playerStart: null,
+      portals: [],
+      enemySpawns: [],
+      shops: [],
+      fountains: [],
+      specials: [],
+      interactions: []
+    };
+
+    for (let row = 0; row < state.height; row += 1) {
+      for (let col = 0; col < state.width; col += 1) {
+        const tileId = state.tiles[row][col];
+        const def = TILE_DEFS_BY_ID[tileId];
+        if (!def || !def.objectType) {
+          continue;
+        }
+
+        if (def.objectType === 'player_start') {
+          placements.playerStart = { x: col, y: row };
+        } else if (def.objectType === 'portal') {
+          placements.portals.push({ x: col, y: row, targetMapId: '' });
+        } else if (def.objectType === 'enemy_spawn') {
+          placements.enemySpawns.push({ x: col, y: row, enemyGroupId: 'default_group' });
+        } else if (def.objectType === 'shop') {
+          placements.shops.push({ x: col, y: row, shopType: def.shopType || 'general' });
+        } else if (def.objectType === 'fountain') {
+          placements.fountains.push({ x: col, y: row, fountainType: 'healing' });
+        } else if (def.objectType === 'special') {
+          placements.specials.push({ x: col, y: row, specialType: def.specialType || 'marker' });
+        } else if (def.objectType === 'interaction') {
+          placements.interactions.push({ x: col, y: row, interactionType: 'npc_or_trigger' });
+        }
+      }
+    }
+
+    return placements;
   }
 
   function importMapFromFile(file) {
@@ -312,16 +595,9 @@
     reader.onload = function () {
       try {
         const parsed = JSON.parse(String(reader.result));
-        const validated = validateMapPayload(parsed);
-        state.gridSize = validated.gridSize;
-        state.tiles = validated.tiles;
-        const normalizedInfo = normalizeUniqueTilesInState();
-        renderGrid();
-        if (normalizedInfo.removedSpawn > 0 || normalizedInfo.removedPortal > 0) {
-          updateStatus('Map imported and normalized (extra spawn/portal tiles were removed).');
-        } else {
-          updateStatus('Map imported successfully.');
-        }
+        const normalized = normalizeImportedPayload(parsed);
+        applyImportedMap(normalized);
+        updateStatus('Map imported successfully.');
       } catch (error) {
         updateStatus('Import failed: ' + error.message, true);
       }
@@ -334,185 +610,85 @@
     reader.readAsText(file);
   }
 
-  function serializeMap() {
-    return {
-      gridSize: state.gridSize,
-      tiles: state.tiles.map(function (row) {
-        return row.slice();
-      })
-    };
-  }
-
-  function validateMapPayload(data) {
+  function normalizeImportedPayload(data) {
     if (!data || typeof data !== 'object') {
-      throw new Error('JSON must be an object.');
+      throw new Error('JSON root must be an object.');
     }
 
-    const gridSize = data.gridSize;
-    const tiles = data.tiles;
-
-    if (!Number.isInteger(gridSize) || gridSize <= 0) {
-      throw new Error('gridSize must be a positive integer.');
+    if (data.formatVersion === 2 && data.map) {
+      return normalizeMapLikeObject(data.map, 'engine');
     }
 
-    if (!Array.isArray(tiles) || tiles.length !== gridSize) {
-      throw new Error('tiles must be an array with exactly gridSize rows.');
+    return normalizeMapLikeObject(data, 'raw');
+  }
+
+  function normalizeMapLikeObject(mapData, mode) {
+    const width = Number.isInteger(mapData.width) ? mapData.width : Number.isInteger(mapData.gridSize) ? mapData.gridSize : null;
+    const height = Number.isInteger(mapData.height) ? mapData.height : Number.isInteger(mapData.gridSize) ? mapData.gridSize : null;
+
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new Error('Map width and height must be positive integers.');
     }
 
-    for (let row = 0; row < gridSize; row += 1) {
-      if (!Array.isArray(tiles[row]) || tiles[row].length !== gridSize) {
-        throw new Error('Each row in tiles must have exactly gridSize columns.');
+    if (!Array.isArray(mapData.tiles) || mapData.tiles.length !== height) {
+      throw new Error('tiles array must match map height.');
+    }
+
+    const normalizedTiles = mapData.tiles.map(function (row) {
+      if (!Array.isArray(row) || row.length !== width) {
+        throw new Error('each tile row must match map width.');
       }
-
-      for (let col = 0; col < gridSize; col += 1) {
-        const tileId = tiles[row][col];
+      return row.map(function (tileId) {
         if (!Number.isInteger(tileId)) {
-          throw new Error('Tile IDs must be integers.');
+          throw new Error('tile IDs must be integers.');
         }
-        if (!Object.prototype.hasOwnProperty.call(TILE_DEFS, tileId)) {
-          throw new Error('Unsupported tile ID found: ' + tileId);
-        }
-      }
-    }
+        return tileId;
+      });
+    });
+
+    const inferredType = typeof mapData.type === 'string' ? mapData.type : mapData.mapType;
 
     return {
-      gridSize: gridSize,
-      tiles: tiles.map(function (row) {
-        return row.slice();
-      })
+      width: width,
+      height: height,
+      mapType: inferredType === 'town' ? 'town' : 'level',
+      mapId: normalizeMapId(mapData.id || mapData.mapId || (mode === 'engine' ? 'imported_engine_map' : 'imported_raw_map')),
+      mapName: String(mapData.name || mapData.mapName || 'Imported Map'),
+      tiles: normalizedTiles
     };
   }
 
-  function normalizeUniqueTilesInState() {
-    const info = {
-      removedSpawn: normalizeUniqueTile(4),
-      removedPortal: normalizeUniqueTile(5)
-    };
-    return info;
+  function applyImportedMap(normalized) {
+    state.width = normalized.width;
+    state.height = normalized.height;
+    state.mapType = normalized.mapType;
+    state.mapId = normalized.mapId;
+    state.mapName = normalized.mapName;
+    state.tiles = normalized.tiles;
+
+    syncMapInputsFromState();
+    updateMapLabels();
+    renderPalette();
+    renderLegend();
+    ensureSelectedTileIsVisible();
+    renderGrid();
   }
 
-  function normalizeUniqueTile(tileId) {
-    let seenFirst = false;
-    let removed = 0;
-
-    for (let row = 0; row < state.gridSize; row += 1) {
-      for (let col = 0; col < state.gridSize; col += 1) {
-        if (state.tiles[row][col] !== tileId) {
-          continue;
-        }
-        if (!seenFirst) {
-          seenFirst = true;
-        } else {
-          state.tiles[row][col] = 0;
-          removed += 1;
-        }
-      }
-    }
-
-    return removed;
-  }
-
-  function buildGameLevelObject() {
-    const map = serializeMap();
-
-    const walls = [];
-    const bridges = [];
-    const camps = [];
-
-    let spawnPoint = null;
-    let portalPoint = null;
-
-    for (let row = 0; row < map.gridSize; row += 1) {
-      for (let col = 0; col < map.gridSize; col += 1) {
-        const tileId = map.tiles[row][col];
-        const tileX = col * TILE_SIZE;
-        const tileY = row * TILE_SIZE;
-        const centerX = tileX + TILE_SIZE / 2;
-        const centerY = tileY + TILE_SIZE / 2;
-
-        if (tileId === 1) {
-          walls.push({
-            x: tileX,
-            y: tileY,
-            w: TILE_SIZE,
-            h: TILE_SIZE,
-            type: 'rock'
-          });
-        } else if (tileId === 4) {
-          spawnPoint = { x: centerX, y: centerY };
-        } else if (tileId === 5) {
-          portalPoint = { x: centerX, y: centerY, radius: 40 };
-        } else if (tileId === 6) {
-          camps.push({
-            x: centerX,
-            y: centerY,
-            count: 4,
-            radius: 180
-          });
-        } else if (tileId === 7) {
-          bridges.push({
-            x: tileX,
-            y: tileY,
-            w: TILE_SIZE,
-            h: TILE_SIZE,
-            type: 'bridge'
-          });
-        }
-      }
-    }
-
-    if (!spawnPoint) {
-      throw new Error('Map must contain one spawn tile (ID 4) before exporting game level.');
-    }
-
-    if (!portalPoint) {
-      throw new Error('Map must contain one portal tile (ID 5) before exporting game level.');
-    }
-
-    return {
-      id: 99,
-      name: 'Builder Map',
-      bg: '#59743b',
-      ground2: '#6f8f49',
-      accent: '#92b85a',
-      obstacleColor: '#41552d',
-      slimeColor: '#89d15b',
-      bridgeColor: '#8f6a3b',
-      width: map.gridSize * TILE_SIZE,
-      height: map.gridSize * TILE_SIZE,
-      playerStart: spawnPoint,
-      portal: portalPoint,
-      walls: walls,
-      bridges: bridges,
-      camps: camps,
-      decorations: { type: 'default', count: 0, items: [] },
-      enemyHp: 44,
-      enemyDamage: 12,
-      enemySpeed: 1.25,
-      enemyCount: camps.length * 4,
-      moneyDrop: [8, 13]
-    };
+  function downloadJsonFile(payload, filename) {
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
   }
 
   function updateStatus(text, isError) {
     dom.message.textContent = text;
     dom.message.style.color = isError ? '#b42318' : '#42556f';
-  }
-
-  function getTileColor(tileId) {
-    switch (tileId) {
-      case 0: return 'var(--empty)';
-      case 1: return 'var(--wall)';
-      case 2: return 'var(--water)';
-      case 3: return 'var(--lava)';
-      case 4: return 'var(--spawn)';
-      case 5: return 'var(--portal)';
-      case 6: return 'var(--camp)';
-      case 7: return 'var(--bridge)';
-      case 10: return 'var(--floor1)';
-      case 11: return 'var(--floor2)';
-      case 12: return 'var(--floor3)';
-      default: return '#000000';
-    }
   }
 })();

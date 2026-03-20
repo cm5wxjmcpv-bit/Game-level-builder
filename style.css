@@ -4,17 +4,6 @@
   --border: #ccd3e0;
   --text: #1f2a3a;
   --muted: #637083;
-  --empty: #e9edf3;
-  --wall: #4c5563;
-  --water: #2a78c8;
-  --lava: #e65032;
-  --spawn: #26a05f;
-  --portal: #6c4ad2;
-  --camp: #8b5a2b;
-  --bridge: #8f6a3b;
-  --floor1: #d3be95;
-  --floor2: #c4b0e2;
-  --floor3: #9ac8b4;
 }
 
 * {
@@ -64,7 +53,7 @@ body {
 }
 
 .controls-panel {
-  width: 320px;
+  width: 340px;
   flex: 0 0 auto;
 }
 
@@ -86,14 +75,45 @@ h2, h3 {
 
 .tile-btn,
 button,
-.file-label {
+.file-label,
+.text-input {
   border: 1px solid #aeb8c8;
   background: #fff;
   color: var(--text);
   border-radius: 6px;
   padding: 0.5rem 0.6rem;
   font-size: 0.92rem;
+}
+
+button,
+.file-label,
+.tile-btn {
   cursor: pointer;
+}
+
+.text-input {
+  width: 100%;
+}
+
+.field-label {
+  font-size: 0.85rem;
+  color: #4a5d7a;
+}
+
+.size-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.tool-grid #eraserBtn {
+  grid-column: 1 / -1;
 }
 
 .tile-btn {
@@ -163,6 +183,8 @@ input[type="file"] {
 .legend ul {
   margin: 0;
   padding-left: 1.1rem;
+  max-height: 240px;
+  overflow: auto;
 }
 
 .legend li {
@@ -172,8 +194,8 @@ input[type="file"] {
 
 .grid-container {
   display: grid;
-  grid-template-columns: repeat(var(--grid-size, 30), 22px);
-  grid-template-rows: repeat(var(--grid-size, 30), 22px);
+  grid-template-columns: repeat(var(--grid-width, 30), 22px);
+  grid-template-rows: repeat(var(--grid-height, 30), 22px);
   width: max-content;
   border: 1px solid #99a4b5;
   background: #99a4b5;
@@ -188,18 +210,6 @@ input[type="file"] {
   padding: 0;
   margin: 0;
 }
-
-.cell[data-tile-id="0"] { background: var(--empty); }
-.cell[data-tile-id="1"] { background: var(--wall); }
-.cell[data-tile-id="2"] { background: var(--water); }
-.cell[data-tile-id="3"] { background: var(--lava); }
-.cell[data-tile-id="4"] { background: var(--spawn); }
-.cell[data-tile-id="5"] { background: var(--portal); }
-.cell[data-tile-id="6"] { background: var(--camp); }
-.cell[data-tile-id="7"] { background: var(--bridge); }
-.cell[data-tile-id="10"] { background: var(--floor1); }
-.cell[data-tile-id="11"] { background: var(--floor2); }
-.cell[data-tile-id="12"] { background: var(--floor3); }
 
 @media (max-width: 1100px) {
   .layout {

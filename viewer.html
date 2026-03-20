@@ -9,7 +9,7 @@
 <body>
   <header class="site-header">
     <h1>2D Level Viewer</h1>
-    <p>Visual checker for level JSON exported from the builder.</p>
+    <p>Visual checker for builder JSON and engine-ready JSON.</p>
   </header>
 
   <main class="layout viewer-layout">
@@ -23,12 +23,13 @@
       </div>
 
       <div class="status-box">
+        <p><strong>Map:</strong> <span id="viewerMapTypeLabel">level</span> (<span id="viewerMapIdLabel">unknown</span>)</p>
         <p><strong>Grid Size:</strong> <span id="viewerGridSizeLabel">0</span> x <span id="viewerGridSizeLabel2">0</span></p>
         <p id="viewerMessage" class="message" role="status" aria-live="polite"></p>
       </div>
 
       <div class="legend">
-        <h3>Tile IDs</h3>
+        <h3>Tile/Object IDs</h3>
         <ul id="viewerTileLegend"></ul>
       </div>
     </aside>
