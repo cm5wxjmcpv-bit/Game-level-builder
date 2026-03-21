@@ -5,6 +5,28 @@
   const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
   const MAX_MAP_SIDE = 200;
+  const ENGINE_TILE_IDS = {
+    floor_grass_a: 'floor_grass_a',
+    floor_grass_b: 'floor_grass_b',
+    floor_stone_a: 'floor_stone_a',
+    floor_stone_b: 'floor_stone_b',
+    floor_dirt_a: 'floor_dirt_a',
+    floor_dirt_b: 'floor_dirt_b',
+    floor_sand_a: 'floor_sand_a',
+    floor_wood_a: 'floor_wood_a',
+    floor_marble_a: 'floor_marble_a',
+    floor_ice_a: 'floor_ice_a',
+    wall_rock_a: 'wall_rock_a',
+    wall_rock_b: 'wall_rock_b',
+    wall_brick_a: 'wall_brick_a',
+    wall_brick_b: 'wall_brick_b',
+    wall_wood_a: 'wall_wood_a',
+    hazard_lava: 'hazard_lava',
+    hazard_water: 'hazard_water',
+    hazard_swamp: 'hazard_swamp',
+    hazard_poison: 'hazard_poison',
+    special_portal_pad: 'special_portal_pad'
+  };
 
   const TILE_IDS = {
     empty: 'empty',
@@ -141,6 +163,12 @@
   };
 
   const PALETTE_DEFINITIONS = [
+    { id: ENGINE_TILE_IDS.floor_stone_a, label: 'Engine Floor Stone A', layer: 'tile', group: 'Engine Core Tiles', color: '#d3be95', mapTypes: ['level', 'town'] },
+    { id: ENGINE_TILE_IDS.floor_grass_a, label: 'Engine Floor Grass A', layer: 'tile', group: 'Engine Core Tiles', color: '#9ac8b4', mapTypes: ['level', 'town'] },
+    { id: ENGINE_TILE_IDS.wall_rock_a, label: 'Engine Wall Rock A', layer: 'tile', group: 'Engine Core Tiles', color: '#4c5563', mapTypes: ['level', 'town'] },
+    { id: ENGINE_TILE_IDS.hazard_water, label: 'Engine Hazard Water', layer: 'tile', group: 'Engine Core Tiles', color: '#2a78c8', mapTypes: ['level', 'town'] },
+    { id: ENGINE_TILE_IDS.special_portal_pad, label: 'Engine Special Portal Pad', layer: 'tile', group: 'Engine Core Tiles', color: '#8f6a3b', mapTypes: ['level', 'town'] },
+
     { id: TILE_IDS.empty, label: 'Empty', layer: 'tile', group: 'Floors', color: '#e9edf3', mapTypes: ['level', 'town'] },
     { id: TILE_IDS.floor_stone, label: 'Floor Stone', layer: 'tile', group: 'Floors', color: '#d3be95', mapTypes: ['level', 'town'] },
     { id: TILE_IDS.floor_wood, label: 'Floor Wood', layer: 'tile', group: 'Floors', color: '#c4b0e2', mapTypes: ['level', 'town'] },
@@ -350,7 +378,7 @@
     tileLayer: createLayerGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT, TILE_IDS.empty),
     objectLayer: createLayerGrid(DEFAULT_WIDTH, DEFAULT_HEIGHT, OBJECT_IDS.none),
     selectedByLayer: {
-      tile: TILE_IDS.floor_stone,
+      tile: ENGINE_TILE_IDS.floor_stone_a,
       object: OBJECT_IDS.player_start
     },
     activeLayer: 'tile',
@@ -886,6 +914,10 @@
   }
 
   function mapTileIdToEngine(tileId) {
+    if (Object.prototype.hasOwnProperty.call(ENGINE_TILE_IDS, tileId)) {
+      return tileId;
+    }
+
     const tileMap = {
       empty: 'floor_grass_a',
       floor_stone: 'floor_stone_a',
@@ -1267,6 +1299,10 @@
 
     if (typeof candidate !== 'string') {
       return expectedLayer === 'object' ? OBJECT_IDS.none : TILE_IDS.empty;
+    }
+
+    if (expectedLayer !== 'object' && Object.prototype.hasOwnProperty.call(ENGINE_TILE_IDS, candidate)) {
+      return candidate;
     }
 
     if (!DEFS_BY_ID[candidate]) {

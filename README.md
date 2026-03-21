@@ -17,7 +17,7 @@ This project is a plain HTML/CSS/JavaScript 2D level builder and viewer.
 - Paint tool and fill tool
 - Expanded tile/object marker definitions for engine workflows
 - Raw JSON export/import (backward-compatible shape)
-- Engine-ready JSON export/import (formatVersion `2`)
+- Engine-ready JSON export/import (game-compatible map shape)
 - Preview-to-viewer flow via localStorage
 
 ## Export Formats
@@ -35,34 +35,22 @@ This project is a plain HTML/CSS/JavaScript 2D level builder and viewer.
 }
 ```
 
-### Engine JSON (`formatVersion: 2`)
+### Engine JSON (current export)
 
 ```json
 {
-  "formatVersion": 2,
-  "map": {
-    "id": "level_001",
-    "name": "Starter Level",
-    "type": "level",
-    "width": 30,
-    "height": 30,
-    "tiles": [[0, 1, 10]],
-    "tileMetadata": [],
-    "placements": {
-      "playerStart": null,
-      "portals": [],
-      "enemySpawns": [],
-      "shops": [],
-      "fountains": [],
-      "specials": [],
-      "interactions": []
-    },
-    "future": {
-      "npcSpawns": [],
-      "scriptedEvents": [],
-      "triggers": []
-    }
-  }
+  "id": "level_001",
+  "name": "Starter Level",
+  "width": 30,
+  "height": 30,
+  "tiles": [["floor_stone_a"]],
+  "objects": {
+    "portals": [],
+    "shops": [],
+    "fountains": [],
+    "enemySpawns": []
+  },
+  "spawn": { "x": 0, "y": 0 }
 }
 ```
 
