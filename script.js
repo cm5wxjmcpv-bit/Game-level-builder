@@ -366,7 +366,39 @@
     mapNameInput: document.getElementById('mapNameInput'),
     mapWidthInput: document.getElementById('mapWidthInput'),
     mapHeightInput: document.getElementById('mapHeightInput'),
-    applySizeBtn: document.getElementById('applySizeBtn')
+    applySizeBtn: document.getElementById('applySizeBtn'),
+    tabMapEditorBtn: document.getElementById('tabMapEditorBtn'),
+    tabViewerBtn: document.getElementById('tabViewerBtn'),
+    tabItemEditorBtn: document.getElementById('tabItemEditorBtn'),
+    mapEditorTab: document.getElementById('mapEditorTab'),
+    viewerTab: document.getElementById('viewerTab'),
+    itemEditorTab: document.getElementById('itemEditorTab'),
+    openViewerFromTabBtn: document.getElementById('openViewerFromTabBtn'),
+    itemList: document.getElementById('itemList'),
+    itemEditorMessage: document.getElementById('itemEditorMessage'),
+    itemNewBtn: document.getElementById('itemNewBtn'),
+    itemSaveBtn: document.getElementById('itemSaveBtn'),
+    itemDeleteBtn: document.getElementById('itemDeleteBtn'),
+    itemExportBtn: document.getElementById('itemExportBtn'),
+    itemImportInput: document.getElementById('itemImportInput'),
+    itemIdInput: document.getElementById('itemIdInput'),
+    itemNameInput: document.getElementById('itemNameInput'),
+    itemCategorySelect: document.getElementById('itemCategorySelect'),
+    itemBaseValueInput: document.getElementById('itemBaseValueInput'),
+    itemStackableInput: document.getElementById('itemStackableInput'),
+    itemRaritySelect: document.getElementById('itemRaritySelect'),
+    itemEquipSlotInput: document.getElementById('itemEquipSlotInput'),
+    itemModsInput: document.getElementById('itemModsInput'),
+    itemPowerInput: document.getElementById('itemPowerInput'),
+    itemAttackRangeInput: document.getElementById('itemAttackRangeInput'),
+    itemCooldownInput: document.getElementById('itemCooldownInput'),
+    itemEffectTypeInput: document.getElementById('itemEffectTypeInput'),
+    itemEffectValueInput: document.getElementById('itemEffectValueInput'),
+    itemEffectDurationInput: document.getElementById('itemEffectDurationInput'),
+    equipSlotRow: document.getElementById('equipSlotRow'),
+    modsRow: document.getElementById('modsRow'),
+    weaponFields: document.getElementById('weaponFields'),
+    consumableFields: document.getElementById('consumableFields')
   };
 
   const state = {
@@ -384,7 +416,10 @@
     activeLayer: 'tile',
     activeTool: 'paint',
     isPainting: false,
-    lastPaintedCellKey: ''
+    lastPaintedCellKey: '',
+    activeTab: 'mapEditor',
+    itemDb: { items: [] },
+    selectedItemIndex: -1
   };
 
   initialize();
@@ -399,6 +434,9 @@
     syncMapInputsFromState();
     updateMapLabels();
     updateSelectedToolLabel();
+    renderItemList();
+    resetItemFormToDefaults();
+    updateItemConditionalFields();
     updateStatus('Ready. Click or drag on the grid to paint tiles and markers.');
   }
 
@@ -641,6 +679,36 @@
         return;
       }
       window.location.href = 'viewer.html';
+    });
+
+    dom.openViewerFromTabBtn.addEventListener('click', function () {
+      dom.openViewerBtn.click();
+    });
+
+    dom.tabMapEditorBtn.addEventListener('click', function () {
+      setActiveTab('mapEditor');
+    });
+
+    dom.tabViewerBtn.addEventListener('click', function () {
+      setActiveTab('viewer');
+    });
+
+    dom.tabItemEditorBtn.addEventListener('click', function () {
+      setActiveTab('itemEditor');
+    });
+
+    dom.itemCategorySelect.addEventListener('change', updateItemConditionalFields);
+    dom.itemNewBtn.addEventListener('click', onNewItem);
+    dom.itemSaveBtn.addEventListener('click', onSaveItem);
+    dom.itemDeleteBtn.addEventListener('click', onDeleteItem);
+    dom.itemExportBtn.addEventListener('click', exportItemsToFile);
+
+    dom.itemImportInput.addEventListener('change', function (event) {
+      if (!event.target.files || !event.target.files[0]) {
+        return;
+      }
+      importItemsFromFile(event.target.files[0]);
+      event.target.value = '';
     });
   }
 
@@ -1331,6 +1399,373 @@
     renderLegend();
     ensureSelectedVisible();
     renderGrid();
+  }
+
+  function setActiveTab(tabName) {
+    state.activeTab = tabName;
+    dom.mapEditorTab.classList.toggle('active', tabName === 'mapEditor');
+    dom.viewerTab.classList.toggle('active', tabName === 'viewer');
+    dom.itemEditorTab.classList.toggle('active', tabName === 'itemEditor');
+    dom.tabMapEditorBtn.classList.toggle('active', tabName === 'mapEditor');
+    dom.tabViewerBtn.classList.toggle('active', tabName === 'viewer');
+    dom.tabItemEditorBtn.classList.toggle('active', tabName === 'itemEditor');
+  }
+
+  function getDefaultItem() {
+    return {
+      id: '',
+      name: '',
+      category: 'weapon',
+      baseValue: 0,
+      stackable: false,
+      rarity: 'common',
+      equipSlot: 'weapon',
+      mods: {},
+      power: 0,
+      attackRange: 1,
+      cooldown: 1
+    };
+  }
+
+  function resetItemFormToDefaults() {
+    const base = getDefaultItem();
+    populateItemForm(base);
+    state.selectedItemIndex = -1;
+    renderItemList();
+    setItemEditorStatus('Creating new item draft.');
+  }
+
+  function populateItemForm(item) {
+    dom.itemIdInput.value = item.id || '';
+    dom.itemNameInput.value = item.name || '';
+    dom.itemCategorySelect.value = sanitizeItemCategory(item.category);
+    dom.itemBaseValueInput.value = item.baseValue !== undefined ? String(item.baseValue) : '0';
+    dom.itemStackableInput.value = String(Boolean(item.stackable));
+    dom.itemRaritySelect.value = sanitizeItemRarity(item.rarity);
+    dom.itemEquipSlotInput.value = item.equipSlot || '';
+    dom.itemModsInput.value = JSON.stringify(isPlainObject(item.mods) ? item.mods : {}, null, 2);
+    dom.itemPowerInput.value = item.power !== undefined ? String(item.power) : '';
+    dom.itemAttackRangeInput.value = item.attackRange !== undefined ? String(item.attackRange) : '';
+    dom.itemCooldownInput.value = item.cooldown !== undefined ? String(item.cooldown) : '';
+    dom.itemEffectTypeInput.value = item.effectType || '';
+    dom.itemEffectValueInput.value = item.effectValue !== undefined ? String(item.effectValue) : '';
+    dom.itemEffectDurationInput.value = item.effectDuration !== undefined ? String(item.effectDuration) : '';
+    updateItemConditionalFields();
+  }
+
+  function sanitizeItemCategory(category) {
+    const allowed = ['weapon', 'armor', 'accessory', 'consumable', 'material', 'key_item'];
+    return allowed.indexOf(category) !== -1 ? category : 'material';
+  }
+
+  function sanitizeItemRarity(rarity) {
+    const allowed = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+    return allowed.indexOf(rarity) !== -1 ? rarity : 'common';
+  }
+
+  function updateItemConditionalFields() {
+    const category = sanitizeItemCategory(dom.itemCategorySelect.value);
+    const showEquip = category === 'weapon' || category === 'armor' || category === 'accessory';
+    const showWeapon = category === 'weapon';
+    const showConsumable = category === 'consumable';
+
+    dom.equipSlotRow.classList.toggle('hidden', !showEquip);
+    dom.modsRow.classList.toggle('hidden', !(showEquip || category === 'weapon'));
+    dom.weaponFields.classList.toggle('hidden', !showWeapon);
+    dom.consumableFields.classList.toggle('hidden', !showConsumable);
+  }
+
+  function renderItemList() {
+    dom.itemList.innerHTML = '';
+    if (!state.itemDb.items.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No items yet.';
+      dom.itemList.appendChild(empty);
+      return;
+    }
+
+    state.itemDb.items.forEach(function (item, index) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'item-list-entry';
+      btn.classList.toggle('active', state.selectedItemIndex === index);
+      const name = item.name || '(unnamed)';
+      btn.innerHTML = '<strong>' + escapeHtml(item.id || '(no id)') + '</strong><small>' +
+        escapeHtml(name) + ' • ' + escapeHtml(item.category || 'material') + ' • ' + escapeHtml(item.rarity || 'common') + '</small>';
+      btn.addEventListener('click', function () {
+        state.selectedItemIndex = index;
+        populateItemForm(item);
+        renderItemList();
+        setItemEditorStatus('Loaded item ' + (item.id || '(no id)') + '.');
+      });
+      dom.itemList.appendChild(btn);
+    });
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function onNewItem() {
+    resetItemFormToDefaults();
+  }
+
+  function onSaveItem() {
+    let parsedMods = {};
+    try {
+      parsedMods = parseModsInput(dom.itemModsInput.value);
+    } catch (error) {
+      setItemEditorStatus('Mods must be valid JSON object: ' + error.message, true);
+      return;
+    }
+
+    const formItem = buildItemFromForm(parsedMods);
+    const validationError = validateItem(formItem);
+    if (validationError) {
+      setItemEditorStatus(validationError, true);
+      return;
+    }
+
+    if (state.selectedItemIndex >= 0) {
+      const original = state.itemDb.items[state.selectedItemIndex] || {};
+      const merged = mergeItemWithUnknownFields(original, formItem);
+      const duplicate = findItemIndexById(formItem.id, state.selectedItemIndex);
+      if (duplicate !== -1) {
+        setItemEditorStatus('Item ID must be unique.', true);
+        return;
+      }
+      state.itemDb.items[state.selectedItemIndex] = merged;
+      setItemEditorStatus('Item updated: ' + formItem.id + '.');
+    } else {
+      const duplicate = findItemIndexById(formItem.id, -1);
+      if (duplicate !== -1) {
+        setItemEditorStatus('Item ID must be unique.', true);
+        return;
+      }
+      state.itemDb.items.push(formItem);
+      state.selectedItemIndex = state.itemDb.items.length - 1;
+      setItemEditorStatus('Item created: ' + formItem.id + '.');
+    }
+
+    renderItemList();
+  }
+
+  function buildItemFromForm(parsedMods) {
+    const category = sanitizeItemCategory(dom.itemCategorySelect.value);
+    const output = {
+      id: dom.itemIdInput.value.trim(),
+      name: dom.itemNameInput.value.trim(),
+      category: category,
+      baseValue: parseRequiredNumber(dom.itemBaseValueInput.value, 0),
+      stackable: dom.itemStackableInput.value === 'true',
+      rarity: sanitizeItemRarity(dom.itemRaritySelect.value)
+    };
+
+    if (category === 'weapon') {
+      output.equipSlot = dom.itemEquipSlotInput.value.trim();
+      output.mods = parsedMods;
+      output.power = parseOptionalNumber(dom.itemPowerInput.value);
+      output.attackRange = parseOptionalNumber(dom.itemAttackRangeInput.value);
+      output.cooldown = parseOptionalNumber(dom.itemCooldownInput.value);
+    } else if (category === 'armor' || category === 'accessory') {
+      output.equipSlot = dom.itemEquipSlotInput.value.trim();
+      output.mods = parsedMods;
+    } else if (category === 'consumable') {
+      output.stackable = dom.itemStackableInput.value === 'true';
+      output.effectType = dom.itemEffectTypeInput.value.trim();
+      output.effectValue = parseOptionalNumber(dom.itemEffectValueInput.value);
+      output.effectDuration = parseOptionalNumber(dom.itemEffectDurationInput.value);
+    }
+
+    return removeUndefinedValues(output);
+  }
+
+  function parseModsInput(raw) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) {
+      return {};
+    }
+    const parsed = JSON.parse(trimmed);
+    if (!isPlainObject(parsed)) {
+      throw new Error('mods must be an object.');
+    }
+    return parsed;
+  }
+
+  function parseRequiredNumber(raw, fallback) {
+    if (raw === '' || raw === null || raw === undefined) {
+      return fallback;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  function parseOptionalNumber(raw) {
+    if (raw === '' || raw === null || raw === undefined) {
+      return undefined;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  function removeUndefinedValues(obj) {
+    return Object.keys(obj).reduce(function (acc, key) {
+      if (obj[key] !== undefined) {
+        acc[key] = obj[key];
+      }
+      return acc;
+    }, {});
+  }
+
+  function validateItem(item) {
+    if (!item.id) {
+      return 'Item ID is required.';
+    }
+
+    if (!item.name) {
+      return 'Item name is required.';
+    }
+
+    const numberKeys = ['baseValue', 'power', 'attackRange', 'cooldown', 'effectValue', 'effectDuration'];
+    for (let i = 0; i < numberKeys.length; i += 1) {
+      const key = numberKeys[i];
+      if (item[key] !== undefined && !Number.isFinite(item[key])) {
+        return key + ' must be a valid number.';
+      }
+    }
+
+    return '';
+  }
+
+  function findItemIndexById(itemId, ignoreIndex) {
+    return state.itemDb.items.findIndex(function (entry, index) {
+      if (index === ignoreIndex) {
+        return false;
+      }
+      return entry && entry.id === itemId;
+    });
+  }
+
+  function mergeItemWithUnknownFields(original, updated) {
+    const preserved = shallowClone(original);
+    const merged = {};
+
+    Object.keys(preserved).forEach(function (key) {
+      merged[key] = preserved[key];
+    });
+
+    Object.keys(updated).forEach(function (key) {
+      merged[key] = updated[key];
+    });
+
+    return merged;
+  }
+
+  function shallowClone(obj) {
+    if (!obj || typeof obj !== 'object') {
+      return {};
+    }
+    return Object.keys(obj).reduce(function (acc, key) {
+      acc[key] = obj[key];
+      return acc;
+    }, {});
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function onDeleteItem() {
+    if (state.selectedItemIndex < 0 || state.selectedItemIndex >= state.itemDb.items.length) {
+      setItemEditorStatus('Select an item to delete.', true);
+      return;
+    }
+    const target = state.itemDb.items[state.selectedItemIndex];
+    if (!window.confirm('Delete item ' + (target.id || '(no id)') + '?')) {
+      return;
+    }
+    state.itemDb.items.splice(state.selectedItemIndex, 1);
+    state.selectedItemIndex = -1;
+    resetItemFormToDefaults();
+    renderItemList();
+    setItemEditorStatus('Item deleted.');
+  }
+
+  function exportItemsToFile() {
+    downloadJsonFile({ items: state.itemDb.items }, 'items_database.json');
+    setItemEditorStatus('Item database exported.');
+  }
+
+  function importItemsFromFile(file) {
+    const reader = new FileReader();
+
+    reader.onload = function () {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const normalized = normalizeImportedItems(parsed);
+        state.itemDb = { items: normalized };
+        state.selectedItemIndex = -1;
+        resetItemFormToDefaults();
+        renderItemList();
+        setItemEditorStatus('Items imported successfully.');
+      } catch (error) {
+        setItemEditorStatus('Item import failed: ' + error.message, true);
+      }
+    };
+
+    reader.onerror = function () {
+      setItemEditorStatus('Item import failed: unable to read file.', true);
+    };
+
+    reader.readAsText(file);
+  }
+
+  function normalizeImportedItems(payload) {
+    const list = Array.isArray(payload) ? payload : payload && Array.isArray(payload.items) ? payload.items : null;
+    if (!list) {
+      throw new Error('Expected JSON format: {"items": [...]} or an array of items.');
+    }
+
+    const normalized = list.map(function (entry) {
+      if (!entry || typeof entry !== 'object') {
+        throw new Error('Each item must be an object.');
+      }
+      const clone = shallowClone(entry);
+      clone.id = String(clone.id || '').trim();
+      clone.name = String(clone.name || '').trim();
+      clone.category = sanitizeItemCategory(clone.category);
+      clone.rarity = sanitizeItemRarity(clone.rarity);
+      clone.baseValue = parseRequiredNumber(clone.baseValue, 0);
+      clone.stackable = Boolean(clone.stackable);
+      if (clone.mods !== undefined && !isPlainObject(clone.mods)) {
+        clone.mods = {};
+      }
+      return clone;
+    });
+
+    const idSet = new Set();
+    normalized.forEach(function (entry) {
+      const error = validateItem(entry);
+      if (error) {
+        throw new Error('Invalid imported item ' + (entry.id || '(missing id)') + ': ' + error);
+      }
+      if (idSet.has(entry.id)) {
+        throw new Error('Duplicate item ID found: ' + entry.id);
+      }
+      idSet.add(entry.id);
+    });
+
+    return normalized;
+  }
+
+  function setItemEditorStatus(text, isError) {
+    dom.itemEditorMessage.textContent = text;
+    dom.itemEditorMessage.style.color = isError ? '#b42318' : '#42556f';
   }
 
   function downloadJsonFile(payload, filename) {
