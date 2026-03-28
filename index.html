@@ -16,6 +16,7 @@
     <button id="tabMapEditorBtn" type="button" class="tab-btn active">Map Editor</button>
     <button id="tabViewerBtn" type="button" class="tab-btn">Viewer</button>
     <button id="tabItemEditorBtn" type="button" class="tab-btn">Item Editor</button>
+    <button id="tabTextureBuilderBtn" type="button" class="tab-btn">Texture Builder</button>
   </nav>
 
   <main id="mapEditorTab" class="layout tab-panel active" data-tab-panel="mapEditor">
@@ -187,6 +188,45 @@
           </form>
         </section>
       </div>
+    </section>
+  </main>
+
+  <main id="textureBuilderTab" class="layout tab-panel" data-tab-panel="textureBuilder">
+    <aside class="panel controls-panel">
+      <h2>Texture Setup</h2>
+      <div class="actions">
+        <label class="field-label" for="textureSizeSelect">Texture Size</label>
+        <select id="textureSizeSelect" class="text-input">
+          <option value="16">16x16</option>
+          <option value="32">32x32</option>
+          <option value="64">64x64</option>
+        </select>
+      </div>
+
+      <h2>Texture Colors & Tools</h2>
+      <div id="texturePalette" class="texture-color-palette" aria-label="Texture color palette"></div>
+      <div class="tool-row tool-grid">
+        <button id="texturePaintToolBtn" type="button" class="secondary-btn">Paint Tool</button>
+        <button id="textureFillToolBtn" type="button" class="secondary-btn">Fill Tool</button>
+        <button id="textureEraserBtn" type="button" class="secondary-btn">Eraser</button>
+      </div>
+
+      <h2>Texture Actions</h2>
+      <div class="actions">
+        <button id="textureExportBtn" type="button">Export Texture JSON</button>
+      </div>
+
+      <div class="status-box">
+        <p><strong>Size:</strong> <span id="textureSizeLabel">16</span> x <span id="textureSizeLabel2">16</span></p>
+        <p><strong>Selected Color:</strong> <span id="textureSelectedColorLabel">#000000</span></p>
+        <p><strong>Tool:</strong> <span id="textureActiveToolLabel">Paint</span></p>
+        <p id="textureMessage" class="message" role="status" aria-live="polite"></p>
+      </div>
+    </aside>
+
+    <section class="panel editor-panel">
+      <h2>Texture Grid</h2>
+      <div id="textureGridContainer" class="texture-grid-container" aria-label="Texture editor grid"></div>
     </section>
   </main>
 
