@@ -5,6 +5,8 @@
   const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
   const MAX_MAP_SIDE = 200;
+  const TEXTURE_COLORS = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', null];
+  const TEXTURE_SIZES = [16, 32, 64];
   const ENGINE_TILE_IDS = {
     floor_grass_a: 'floor_grass_a',
     floor_grass_b: 'floor_grass_b',
@@ -370,9 +372,11 @@
     tabMapEditorBtn: document.getElementById('tabMapEditorBtn'),
     tabViewerBtn: document.getElementById('tabViewerBtn'),
     tabItemEditorBtn: document.getElementById('tabItemEditorBtn'),
+    tabTextureBuilderBtn: document.getElementById('tabTextureBuilderBtn'),
     mapEditorTab: document.getElementById('mapEditorTab'),
     viewerTab: document.getElementById('viewerTab'),
     itemEditorTab: document.getElementById('itemEditorTab'),
+    textureBuilderTab: document.getElementById('textureBuilderTab'),
     openViewerFromTabBtn: document.getElementById('openViewerFromTabBtn'),
     itemList: document.getElementById('itemList'),
     itemEditorMessage: document.getElementById('itemEditorMessage'),
@@ -398,7 +402,19 @@
     equipSlotRow: document.getElementById('equipSlotRow'),
     modsRow: document.getElementById('modsRow'),
     weaponFields: document.getElementById('weaponFields'),
-    consumableFields: document.getElementById('consumableFields')
+    consumableFields: document.getElementById('consumableFields'),
+    textureSizeSelect: document.getElementById('textureSizeSelect'),
+    texturePalette: document.getElementById('texturePalette'),
+    texturePaintToolBtn: document.getElementById('texturePaintToolBtn'),
+    textureFillToolBtn: document.getElementById('textureFillToolBtn'),
+    textureEraserBtn: document.getElementById('textureEraserBtn'),
+    textureExportBtn: document.getElementById('textureExportBtn'),
+    textureGridContainer: document.getElementById('textureGridContainer'),
+    textureSizeLabel: document.getElementById('textureSizeLabel'),
+    textureSizeLabel2: document.getElementById('textureSizeLabel2'),
+    textureSelectedColorLabel: document.getElementById('textureSelectedColorLabel'),
+    textureActiveToolLabel: document.getElementById('textureActiveToolLabel'),
+    textureMessage: document.getElementById('textureMessage')
   };
 
   const state = {
@@ -419,7 +435,15 @@
     lastPaintedCellKey: '',
     activeTab: 'mapEditor',
     itemDb: { items: [] },
-    selectedItemIndex: -1
+    selectedItemIndex: -1,
+    textureBuilder: {
+      size: 16,
+      pixels: createLayerGrid(16, 16, null),
+      selectedColor: '#000000',
+      activeTool: 'paint',
+      isPainting: false,
+      lastPaintedCellKey: ''
+    }
   };
 
   initialize();
@@ -437,6 +461,7 @@
     renderItemList();
     resetItemFormToDefaults();
     updateItemConditionalFields();
+    initializeTextureBuilder();
     updateStatus('Ready. Click or drag on the grid to paint tiles and markers.');
   }
 
@@ -584,6 +609,8 @@
     document.addEventListener('mouseup', function () {
       state.isPainting = false;
       state.lastPaintedCellKey = '';
+      state.textureBuilder.isPainting = false;
+      state.textureBuilder.lastPaintedCellKey = '';
     });
 
     dom.gridContainer.addEventListener('click', function (event) {
@@ -697,6 +724,10 @@
       setActiveTab('itemEditor');
     });
 
+    dom.tabTextureBuilderBtn.addEventListener('click', function () {
+      setActiveTab('textureBuilder');
+    });
+
     dom.itemCategorySelect.addEventListener('change', updateItemConditionalFields);
     dom.itemNewBtn.addEventListener('click', onNewItem);
     dom.itemSaveBtn.addEventListener('click', onSaveItem);
@@ -710,6 +741,224 @@
       importItemsFromFile(event.target.files[0]);
       event.target.value = '';
     });
+
+    dom.textureGridContainer.addEventListener('mousedown', function (event) {
+      const cell = getTextureCellFromEventTarget(event.target);
+      if (!cell) {
+        return;
+      }
+      event.preventDefault();
+      state.textureBuilder.isPainting = true;
+      state.textureBuilder.lastPaintedCellKey = '';
+      paintTextureCellFromElement(cell);
+    });
+
+    dom.textureGridContainer.addEventListener('mouseover', function (event) {
+      if (!state.textureBuilder.isPainting || state.textureBuilder.activeTool !== 'paint') {
+        return;
+      }
+      const cell = getTextureCellFromEventTarget(event.target);
+      if (!cell) {
+        return;
+      }
+      paintTextureCellFromElement(cell);
+    });
+
+    dom.textureGridContainer.addEventListener('click', function (event) {
+      const cell = getTextureCellFromEventTarget(event.target);
+      if (!cell) {
+        return;
+      }
+      paintTextureCellFromElement(cell);
+    });
+
+    dom.textureSizeSelect.addEventListener('change', function () {
+      const nextSize = Number(dom.textureSizeSelect.value);
+      if (TEXTURE_SIZES.indexOf(nextSize) === -1) {
+        return;
+      }
+      state.textureBuilder.size = nextSize;
+      state.textureBuilder.pixels = createLayerGrid(nextSize, nextSize, null);
+      renderTextureGrid();
+      updateTextureStatus('Texture grid reset to ' + nextSize + ' x ' + nextSize + '.');
+    });
+
+    dom.texturePaintToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'paint';
+      updateTextureToolButtonState();
+    });
+
+    dom.textureFillToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'fill';
+      updateTextureToolButtonState();
+    });
+
+    dom.textureEraserBtn.addEventListener('click', function () {
+      state.textureBuilder.selectedColor = null;
+      state.textureBuilder.activeTool = 'paint';
+      highlightActiveTexturePaletteButton();
+      updateTextureToolButtonState();
+      updateTextureStatus('Eraser selected.');
+    });
+
+    dom.textureExportBtn.addEventListener('click', exportTextureToFile);
+  }
+
+  function initializeTextureBuilder() {
+    dom.textureSizeSelect.value = String(state.textureBuilder.size);
+    renderTexturePalette();
+    renderTextureGrid();
+    updateTextureToolButtonState();
+    updateTextureStatus('Texture Builder ready.');
+  }
+
+  function renderTexturePalette() {
+    dom.texturePalette.innerHTML = '';
+    TEXTURE_COLORS.forEach(function (color) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'texture-color-btn';
+      button.dataset.color = color === null ? 'null' : color;
+      if (color === null) {
+        button.classList.add('texture-transparent');
+        button.title = 'Transparent';
+      } else {
+        button.style.backgroundColor = color;
+        button.title = color;
+      }
+      button.addEventListener('click', function () {
+        state.textureBuilder.selectedColor = color;
+        highlightActiveTexturePaletteButton();
+      });
+      dom.texturePalette.appendChild(button);
+    });
+    highlightActiveTexturePaletteButton();
+  }
+
+  function highlightActiveTexturePaletteButton() {
+    const selected = state.textureBuilder.selectedColor;
+    dom.texturePalette.querySelectorAll('.texture-color-btn').forEach(function (btn) {
+      const btnColor = btn.dataset.color === 'null' ? null : btn.dataset.color;
+      btn.classList.toggle('active', btnColor === selected);
+    });
+    dom.textureSelectedColorLabel.textContent = selected === null ? 'Transparent' : selected;
+  }
+
+  function renderTextureGrid() {
+    const size = state.textureBuilder.size;
+    dom.textureGridContainer.innerHTML = '';
+    dom.textureGridContainer.style.setProperty('--texture-grid-width', String(size));
+    dom.textureGridContainer.style.setProperty('--texture-grid-height', String(size));
+
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'texture-cell';
+        cell.dataset.row = String(row);
+        cell.dataset.col = String(col);
+        applyTextureCellVisual(cell, state.textureBuilder.pixels[row][col]);
+        dom.textureGridContainer.appendChild(cell);
+      }
+    }
+
+    dom.textureSizeLabel.textContent = String(size);
+    dom.textureSizeLabel2.textContent = String(size);
+  }
+
+  function applyTextureCellVisual(cell, color) {
+    if (color === null) {
+      cell.classList.add('texture-empty');
+      cell.style.backgroundColor = '';
+      return;
+    }
+    cell.classList.remove('texture-empty');
+    cell.style.backgroundColor = color;
+  }
+
+  function getTextureCellFromEventTarget(target) {
+    if (!target || !target.closest) {
+      return null;
+    }
+    return target.closest('.texture-cell');
+  }
+
+  function paintTextureCellFromElement(cell) {
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    if (!Number.isInteger(row) || !Number.isInteger(col)) {
+      return;
+    }
+
+    if (state.textureBuilder.activeTool === 'fill') {
+      applyTextureFillAt(row, col, state.textureBuilder.selectedColor);
+      renderTextureGrid();
+      updateTextureStatus('Texture fill applied from (' + col + ', ' + row + ').');
+      return;
+    }
+
+    const currentKey = row + ',' + col;
+    if (state.textureBuilder.lastPaintedCellKey === currentKey && state.textureBuilder.isPainting) {
+      return;
+    }
+    state.textureBuilder.lastPaintedCellKey = currentKey;
+
+    state.textureBuilder.pixels[row][col] = state.textureBuilder.selectedColor;
+    applyTextureCellVisual(cell, state.textureBuilder.pixels[row][col]);
+  }
+
+  function applyTextureFillAt(startRow, startCol, color) {
+    const pixels = state.textureBuilder.pixels;
+    const size = state.textureBuilder.size;
+    const targetColor = pixels[startRow][startCol];
+    if (targetColor === color) {
+      return;
+    }
+
+    const queue = [[startRow, startCol]];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const row = current[0];
+      const col = current[1];
+      const key = row + ',' + col;
+
+      if (visited.has(key)) {
+        continue;
+      }
+      visited.add(key);
+
+      if (row < 0 || row >= size || col < 0 || col >= size || pixels[row][col] !== targetColor) {
+        continue;
+      }
+
+      pixels[row][col] = color;
+      queue.push([row - 1, col]);
+      queue.push([row + 1, col]);
+      queue.push([row, col - 1]);
+      queue.push([row, col + 1]);
+    }
+  }
+
+  function updateTextureToolButtonState() {
+    dom.texturePaintToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'paint');
+    dom.textureFillToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'fill');
+    dom.textureActiveToolLabel.textContent = state.textureBuilder.activeTool === 'fill' ? 'Fill' : 'Paint';
+  }
+
+  function exportTextureToFile() {
+    const payload = {
+      type: 'texture',
+      size: state.textureBuilder.size,
+      pixels: cloneLayer(state.textureBuilder.pixels)
+    };
+    downloadJsonFile(payload, 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size + '.json');
+    updateTextureStatus('Texture JSON exported.');
+  }
+
+  function updateTextureStatus(text, isError) {
+    dom.textureMessage.textContent = text;
+    dom.textureMessage.style.color = isError ? '#b42318' : '#42556f';
   }
 
   function onActiveLayerChanged() {
@@ -1406,9 +1655,11 @@
     dom.mapEditorTab.classList.toggle('active', tabName === 'mapEditor');
     dom.viewerTab.classList.toggle('active', tabName === 'viewer');
     dom.itemEditorTab.classList.toggle('active', tabName === 'itemEditor');
+    dom.textureBuilderTab.classList.toggle('active', tabName === 'textureBuilder');
     dom.tabMapEditorBtn.classList.toggle('active', tabName === 'mapEditor');
     dom.tabViewerBtn.classList.toggle('active', tabName === 'viewer');
     dom.tabItemEditorBtn.classList.toggle('active', tabName === 'itemEditor');
+    dom.tabTextureBuilderBtn.classList.toggle('active', tabName === 'textureBuilder');
   }
 
   function getDefaultItem() {
