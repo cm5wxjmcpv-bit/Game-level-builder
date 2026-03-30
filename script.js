@@ -404,6 +404,7 @@
     weaponFields: document.getElementById('weaponFields'),
     consumableFields: document.getElementById('consumableFields'),
     textureSizeSelect: document.getElementById('textureSizeSelect'),
+    textureColorPicker: document.getElementById('textureColorPicker'),
     texturePalette: document.getElementById('texturePalette'),
     texturePaintToolBtn: document.getElementById('texturePaintToolBtn'),
     textureFillToolBtn: document.getElementById('textureFillToolBtn'),
@@ -783,6 +784,12 @@
       updateTextureStatus('Texture grid reset to ' + nextSize + ' x ' + nextSize + '.');
     });
 
+    dom.textureColorPicker.addEventListener('input', function () {
+      state.textureBuilder.selectedColor = dom.textureColorPicker.value;
+      highlightActiveTexturePaletteButton();
+      updateTextureStatus('Custom color selected: ' + dom.textureColorPicker.value);
+    });
+
     dom.texturePaintToolBtn.addEventListener('click', function () {
       state.textureBuilder.activeTool = 'paint';
       updateTextureToolButtonState();
@@ -806,6 +813,7 @@
 
   function initializeTextureBuilder() {
     dom.textureSizeSelect.value = String(state.textureBuilder.size);
+    dom.textureColorPicker.value = state.textureBuilder.selectedColor || '#000000';
     renderTexturePalette();
     renderTextureGrid();
     updateTextureToolButtonState();
@@ -814,6 +822,7 @@
 
   function renderTexturePalette() {
     dom.texturePalette.innerHTML = '';
+
     TEXTURE_COLORS.forEach(function (color) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -841,6 +850,9 @@
       const btnColor = btn.dataset.color === 'null' ? null : btn.dataset.color;
       btn.classList.toggle('active', btnColor === selected);
     });
+    if (selected !== null && dom.textureColorPicker) {
+      dom.textureColorPicker.value = selected;
+    }
     dom.textureSelectedColorLabel.textContent = selected === null ? 'Transparent' : selected;
   }
 
@@ -1025,7 +1037,6 @@
 
     const copyHeight = Math.min(oldHeight, nextHeight);
     const copyWidth = Math.min(oldWidth, nextWidth);
-
     for (let row = 0; row < copyHeight; row += 1) {
       for (let col = 0; col < copyWidth; col += 1) {
         nextTileLayer[row][col] = state.tileLayer[row][col];
@@ -1529,7 +1540,6 @@
         }
       });
     } else {
-      // Legacy single-layer format: split object-like ids out.
       for (let row = 0; row < height; row += 1) {
         for (let col = 0; col < width; col += 1) {
           const sourceCell = tileSource[row][col];
@@ -1545,7 +1555,6 @@
     }
 
     const inferredType = typeof mapData.mapType === 'string' ? mapData.mapType : mapData.type;
-
     return {
       width: width,
       height: height,
