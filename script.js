@@ -409,7 +409,10 @@
     texturePaintToolBtn: document.getElementById('texturePaintToolBtn'),
     textureFillToolBtn: document.getElementById('textureFillToolBtn'),
     textureEraserBtn: document.getElementById('textureEraserBtn'),
+    textureFilenameInput: document.getElementById('textureFilenameInput'),
     textureExportBtn: document.getElementById('textureExportBtn'),
+    textureExportPngBtn: document.getElementById('textureExportPngBtn'),
+    textureExportEngineEntryBtn: document.getElementById('textureExportEngineEntryBtn'),
     textureGridContainer: document.getElementById('textureGridContainer'),
     textureSizeLabel: document.getElementById('textureSizeLabel'),
     textureSizeLabel2: document.getElementById('textureSizeLabel2'),
@@ -780,6 +783,9 @@
       }
       state.textureBuilder.size = nextSize;
       state.textureBuilder.pixels = createLayerGrid(nextSize, nextSize, null);
+      if (!dom.textureFilenameInput.value.trim()) {
+        dom.textureFilenameInput.value = 'texture_' + nextSize + 'x' + nextSize;
+      }
       renderTextureGrid();
       updateTextureStatus('Texture grid reset to ' + nextSize + ' x ' + nextSize + '.');
     });
@@ -809,11 +815,19 @@
     });
 
     dom.textureExportBtn.addEventListener('click', exportTextureToFile);
+    dom.textureExportPngBtn.addEventListener('click', exportTexturePngToFile);
+    dom.textureExportEngineEntryBtn.addEventListener('click', exportTextureEngineEntryToFile);
+    dom.textureFilenameInput.addEventListener('blur', function () {
+      const fallback = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
+      const cleaned = sanitizeTextureFilename(dom.textureFilenameInput.value);
+      dom.textureFilenameInput.value = cleaned || fallback;
+    });
   }
 
   function initializeTextureBuilder() {
     dom.textureSizeSelect.value = String(state.textureBuilder.size);
     dom.textureColorPicker.value = state.textureBuilder.selectedColor || '#000000';
+    dom.textureFilenameInput.value = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
     renderTexturePalette();
     renderTextureGrid();
     updateTextureToolButtonState();
@@ -966,6 +980,80 @@
     };
     downloadJsonFile(payload, 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size + '.json');
     updateTextureStatus('Texture JSON exported.');
+  }
+
+  function sanitizeTextureFilename(inputValue) {
+    return String(inputValue || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  function getTextureExportBaseFilename() {
+    const fallback = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
+    const cleaned = sanitizeTextureFilename(dom.textureFilenameInput.value);
+    const filename = cleaned || fallback;
+    dom.textureFilenameInput.value = filename;
+    return filename;
+  }
+
+  function downloadBlobFile(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+  }
+
+  function exportTexturePngToFile() {
+    const size = state.textureBuilder.size;
+    const pixels = state.textureBuilder.pixels;
+    const baseFilename = getTextureExportBaseFilename();
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      updateTextureStatus('Texture PNG export failed (canvas unavailable).', true);
+      return;
+    }
+
+    ctx.clearRect(0, 0, size, size);
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        const color = pixels[row][col];
+        if (color === null) {
+          continue;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(col, row, 1, 1);
+      }
+    }
+
+    canvas.toBlob(function (blob) {
+      if (!blob) {
+        updateTextureStatus('Texture PNG export failed (blob creation failed).', true);
+        return;
+      }
+      downloadBlobFile(blob, baseFilename + '.png');
+      updateTextureStatus('Texture PNG exported.');
+    }, 'image/png');
+  }
+
+  function exportTextureEngineEntryToFile() {
+    const baseFilename = getTextureExportBaseFilename();
+    const payload = {
+      key: baseFilename,
+      path: 'assets/textures/starter/' + baseFilename + '.png'
+    };
+    downloadJsonFile(payload, baseFilename + '_entry.json');
+    updateTextureStatus('Engine texture entry exported.');
   }
 
   function updateTextureStatus(text, isError) {
