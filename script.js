@@ -4,6 +4,8 @@
   const DEFAULT_WIDTH = 30;
   const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
+  const TEXTURE_CUSTOM_COLORS_STORAGE_KEY = 'levelBuilderTextureCustomColors';
+  const TEXTURE_MAX_SAVED_CUSTOM_COLORS = 16;
   const MAX_MAP_SIDE = 200;
   const TEXTURE_COLORS = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', null];
   const TEXTURE_SIZES = [16, 32, 64];
@@ -444,6 +446,7 @@
       size: 16,
       pixels: createLayerGrid(16, 16, null),
       selectedColor: '#000000',
+      customColors: [],
       activeTool: 'paint',
       isPainting: false,
       lastPaintedCellKey: ''
@@ -792,6 +795,10 @@
 
     dom.textureColorPicker.addEventListener('input', function () {
       state.textureBuilder.selectedColor = dom.textureColorPicker.value;
+      const added = rememberTextureCustomColor(state.textureBuilder.selectedColor);
+      if (added) {
+        renderTexturePalette();
+      }
       highlightActiveTexturePaletteButton();
       updateTextureStatus('Custom color selected: ' + dom.textureColorPicker.value);
     });
@@ -828,6 +835,7 @@
     dom.textureSizeSelect.value = String(state.textureBuilder.size);
     dom.textureColorPicker.value = state.textureBuilder.selectedColor || '#000000';
     dom.textureFilenameInput.value = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
+    state.textureBuilder.customColors = loadTextureCustomColorsFromStorage();
     renderTexturePalette();
     renderTextureGrid();
     updateTextureToolButtonState();
@@ -855,7 +863,88 @@
       });
       dom.texturePalette.appendChild(button);
     });
+
+    state.textureBuilder.customColors.forEach(function (color) {
+      if (!isValidTextureHexColor(color)) {
+        return;
+      }
+      if (TEXTURE_COLORS.indexOf(color) !== -1) {
+        return;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'texture-color-btn';
+      button.dataset.color = color;
+      button.style.backgroundColor = color;
+      button.title = color + ' (custom)';
+      button.addEventListener('click', function () {
+        state.textureBuilder.selectedColor = color;
+        highlightActiveTexturePaletteButton();
+      });
+      dom.texturePalette.appendChild(button);
+    });
+
     highlightActiveTexturePaletteButton();
+  }
+
+  function isValidTextureHexColor(value) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || ''));
+  }
+
+  function normalizeTextureCustomColor(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function loadTextureCustomColorsFromStorage() {
+    try {
+      const raw = window.localStorage.getItem(TEXTURE_CUSTOM_COLORS_STORAGE_KEY);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      const seen = new Set();
+      const normalized = [];
+      parsed.forEach(function (entry) {
+        const color = normalizeTextureCustomColor(entry);
+        if (!isValidTextureHexColor(color)) {
+          return;
+        }
+        if (seen.has(color)) {
+          return;
+        }
+        seen.add(color);
+        normalized.push(color);
+      });
+      return normalized.slice(0, TEXTURE_MAX_SAVED_CUSTOM_COLORS);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function saveTextureCustomColorsToStorage(colors) {
+    try {
+      window.localStorage.setItem(TEXTURE_CUSTOM_COLORS_STORAGE_KEY, JSON.stringify(colors));
+    } catch (error) {
+      // Ignore storage failures and continue without persistence.
+    }
+  }
+
+  function rememberTextureCustomColor(color) {
+    const normalized = normalizeTextureCustomColor(color);
+    if (!isValidTextureHexColor(normalized)) {
+      return false;
+    }
+
+    const next = state.textureBuilder.customColors.filter(function (entry) {
+      return entry !== normalized;
+    });
+    next.unshift(normalized);
+    state.textureBuilder.customColors = next.slice(0, TEXTURE_MAX_SAVED_CUSTOM_COLORS);
+    saveTextureCustomColorsToStorage(state.textureBuilder.customColors);
+    return true;
   }
 
   function highlightActiveTexturePaletteButton() {
