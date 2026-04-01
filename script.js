@@ -6,6 +6,7 @@
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
   const TEXTURE_CUSTOM_COLORS_STORAGE_KEY = 'levelBuilderTextureCustomColors';
   const TEXTURE_MAX_SAVED_CUSTOM_COLORS = 16;
+  const TEXTURE_HISTORY_LIMIT = 30;
   const MAX_MAP_SIDE = 200;
   const TEXTURE_COLORS = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', null];
   const TEXTURE_SIZES = [16, 32, 64];
@@ -421,6 +422,8 @@
     textureBarLengthInput: document.getElementById('textureBarLengthInput'),
     textureBarThicknessInput: document.getElementById('textureBarThicknessInput'),
     textureLayerList: document.getElementById('textureLayerList'),
+    textureUndoBtn: document.getElementById('textureUndoBtn'),
+    textureRedoBtn: document.getElementById('textureRedoBtn'),
     textureAddLayerBtn: document.getElementById('textureAddLayerBtn'),
     textureClearLayerBtn: document.getElementById('textureClearLayerBtn'),
     textureFilenameInput: document.getElementById('textureFilenameInput'),
@@ -469,6 +472,10 @@
       previewCells: [],
       shapeStart: null,
       nextLayerId: 1,
+      undoStack: [],
+      redoStack: [],
+      pendingStrokeSnapshot: null,
+      hasPendingStrokeChange: false,
       isPainting: false,
       lastPaintedCellKey: ''
     }
@@ -637,6 +644,7 @@
     document.addEventListener('mouseup', function () {
       state.isPainting = false;
       state.lastPaintedCellKey = '';
+      finalizeTextureStrokeHistory();
       state.textureBuilder.isPainting = false;
       state.textureBuilder.lastPaintedCellKey = '';
     });
@@ -810,8 +818,9 @@
       if (TEXTURE_SIZES.indexOf(nextSize) === -1) {
         return;
       }
+      pushTextureUndoState();
       state.textureBuilder.size = nextSize;
-      resetTextureLayers(nextSize);
+      resetTextureLayers(nextSize, false);
       if (!dom.textureFilenameInput.value.trim()) {
         dom.textureFilenameInput.value = 'texture_' + nextSize + 'x' + nextSize;
       }
@@ -907,8 +916,44 @@
       clearActiveTextureLayer();
     });
 
+    dom.textureUndoBtn.addEventListener('click', function () {
+      undoTextureAction();
+    });
+
+    dom.textureRedoBtn.addEventListener('click', function () {
+      redoTextureAction();
+    });
+
     dom.textureLayerList.addEventListener('click', onTextureLayerListClick);
     dom.textureLayerList.addEventListener('change', onTextureLayerListChange);
+
+    document.addEventListener('keydown', function (event) {
+      if (state.activeTab !== 'textureBuilder') {
+        return;
+      }
+      if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.isContentEditable)) {
+        return;
+      }
+      const isMetaUndo = event.metaKey || event.ctrlKey;
+      if (!isMetaUndo) {
+        return;
+      }
+      const key = String(event.key || '').toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        redoTextureAction();
+        return;
+      }
+      if (key === 'y') {
+        event.preventDefault();
+        redoTextureAction();
+        return;
+      }
+      if (key === 'z') {
+        event.preventDefault();
+        undoTextureAction();
+      }
+    });
 
     dom.textureExportBtn.addEventListener('click', exportTextureToFile);
     dom.textureExportPngBtn.addEventListener('click', exportTexturePngToFile);
@@ -941,6 +986,7 @@
     renderTextureGrid();
     renderTextureLayerList();
     updateTextureToolButtonState();
+    updateTextureUndoRedoButtons();
     updateTextureStatus('Texture Builder ready.');
   }
 
@@ -957,11 +1003,157 @@
     };
   }
 
-  function resetTextureLayers(size) {
+  function resetTextureLayers(size, shouldResetHistory) {
     state.textureBuilder.layers = [createTextureLayer('Layer 1', size)];
     state.textureBuilder.activeLayerId = state.textureBuilder.layers[0].id;
     state.textureBuilder.shapeStart = null;
     clearTexturePreview();
+    if (shouldResetHistory !== false) {
+      state.textureBuilder.undoStack = [];
+      state.textureBuilder.redoStack = [];
+      state.textureBuilder.pendingStrokeSnapshot = null;
+      state.textureBuilder.hasPendingStrokeChange = false;
+    }
+    updateTextureUndoRedoButtons();
+  }
+
+  function createTextureHistorySnapshot() {
+    return {
+      size: state.textureBuilder.size,
+      layers: state.textureBuilder.layers.map(function (layer) {
+        return {
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          locked: layer.locked,
+          opacity: layer.opacity,
+          pixels: cloneLayer(layer.pixels)
+        };
+      }),
+      activeLayerId: state.textureBuilder.activeLayerId,
+      nextLayerId: state.textureBuilder.nextLayerId,
+      brushSize: state.textureBuilder.brushSize,
+      highlighterOpacity: state.textureBuilder.highlighterOpacity,
+      barLength: state.textureBuilder.barLength,
+      barThickness: state.textureBuilder.barThickness
+    };
+  }
+
+  function restoreTextureHistorySnapshot(snapshot) {
+    state.textureBuilder.size = snapshot.size;
+    dom.textureSizeSelect.value = String(snapshot.size);
+    state.textureBuilder.layers = snapshot.layers.map(function (layer) {
+      return {
+        id: layer.id,
+        name: layer.name,
+        visible: layer.visible,
+        locked: layer.locked,
+        opacity: layer.opacity,
+        pixels: cloneLayer(layer.pixels)
+      };
+    });
+    state.textureBuilder.activeLayerId = snapshot.activeLayerId;
+    state.textureBuilder.nextLayerId = snapshot.nextLayerId;
+    state.textureBuilder.brushSize = snapshot.brushSize;
+    state.textureBuilder.highlighterOpacity = snapshot.highlighterOpacity;
+    state.textureBuilder.barLength = snapshot.barLength;
+    state.textureBuilder.barThickness = snapshot.barThickness;
+    dom.textureBrushSizeSelect.value = String(state.textureBuilder.brushSize);
+    dom.textureHighlighterOpacityInput.value = String(state.textureBuilder.highlighterOpacity);
+    dom.textureBarLengthInput.value = String(state.textureBuilder.barLength);
+    dom.textureBarThicknessInput.value = String(state.textureBuilder.barThickness);
+    state.textureBuilder.shapeStart = null;
+    clearTexturePreview();
+    renderTextureLayerList();
+    renderTextureGrid();
+  }
+
+  function snapshotsEqualForTexture(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function pushTextureUndoState() {
+    const snapshot = createTextureHistorySnapshot();
+    const undoStack = state.textureBuilder.undoStack;
+    const last = undoStack.length ? undoStack[undoStack.length - 1] : null;
+    if (!last || !snapshotsEqualForTexture(last, snapshot)) {
+      undoStack.push(snapshot);
+      if (undoStack.length > TEXTURE_HISTORY_LIMIT) {
+        undoStack.shift();
+      }
+    }
+    state.textureBuilder.redoStack = [];
+    updateTextureUndoRedoButtons();
+  }
+
+  function undoTextureAction() {
+    if (!state.textureBuilder.undoStack.length) {
+      return;
+    }
+    const current = createTextureHistorySnapshot();
+    const previous = state.textureBuilder.undoStack.pop();
+    state.textureBuilder.redoStack.push(current);
+    if (state.textureBuilder.redoStack.length > TEXTURE_HISTORY_LIMIT) {
+      state.textureBuilder.redoStack.shift();
+    }
+    restoreTextureHistorySnapshot(previous);
+    updateTextureUndoRedoButtons();
+    updateTextureStatus('Texture undo applied.');
+  }
+
+  function redoTextureAction() {
+    if (!state.textureBuilder.redoStack.length) {
+      return;
+    }
+    const current = createTextureHistorySnapshot();
+    const next = state.textureBuilder.redoStack.pop();
+    state.textureBuilder.undoStack.push(current);
+    if (state.textureBuilder.undoStack.length > TEXTURE_HISTORY_LIMIT) {
+      state.textureBuilder.undoStack.shift();
+    }
+    restoreTextureHistorySnapshot(next);
+    updateTextureUndoRedoButtons();
+    updateTextureStatus('Texture redo applied.');
+  }
+
+  function updateTextureUndoRedoButtons() {
+    if (!dom.textureUndoBtn || !dom.textureRedoBtn) {
+      return;
+    }
+    dom.textureUndoBtn.disabled = state.textureBuilder.undoStack.length === 0;
+    dom.textureRedoBtn.disabled = state.textureBuilder.redoStack.length === 0;
+  }
+
+  function beginTextureStrokeHistoryIfNeeded() {
+    if (state.textureBuilder.pendingStrokeSnapshot) {
+      return;
+    }
+    state.textureBuilder.pendingStrokeSnapshot = createTextureHistorySnapshot();
+    state.textureBuilder.hasPendingStrokeChange = false;
+  }
+
+  function markTextureStrokeChanged() {
+    state.textureBuilder.hasPendingStrokeChange = true;
+  }
+
+  function finalizeTextureStrokeHistory() {
+    if (!state.textureBuilder.pendingStrokeSnapshot) {
+      return;
+    }
+    if (state.textureBuilder.hasPendingStrokeChange) {
+      const prior = state.textureBuilder.pendingStrokeSnapshot;
+      const current = createTextureHistorySnapshot();
+      if (!snapshotsEqualForTexture(prior, current)) {
+        state.textureBuilder.undoStack.push(prior);
+        if (state.textureBuilder.undoStack.length > TEXTURE_HISTORY_LIMIT) {
+          state.textureBuilder.undoStack.shift();
+        }
+        state.textureBuilder.redoStack = [];
+      }
+      updateTextureUndoRedoButtons();
+    }
+    state.textureBuilder.pendingStrokeSnapshot = null;
+    state.textureBuilder.hasPendingStrokeChange = false;
   }
 
   function getActiveTextureLayer() {
@@ -1179,6 +1371,7 @@
     }
 
     if (state.textureBuilder.activeTool === 'fill') {
+      pushTextureUndoState();
       applyTextureFillAt(activeLayer, row, col, state.textureBuilder.selectedColor);
       renderTextureGrid();
       updateTextureStatus('Texture fill applied from (' + col + ', ' + row + ').');
@@ -1186,6 +1379,7 @@
     }
 
     if (state.textureBuilder.activeTool === 'hbar' || state.textureBuilder.activeTool === 'vbar') {
+      pushTextureUndoState();
       const barPoints = getBarToolPoints(row, col, state.textureBuilder.activeTool);
       applyTextureStrokeToLayer(activeLayer, barPoints, getTextureToolPixelValue(), false);
       renderTextureGrid();
@@ -1198,6 +1392,7 @@
         updateTextureStatus('Line start set. Click end point to commit line.');
         return;
       }
+      pushTextureUndoState();
       const linePoints = getLineToolPoints(state.textureBuilder.shapeStart.row, state.textureBuilder.shapeStart.col, row, col, state.textureBuilder.barThickness);
       applyTextureStrokeToLayer(activeLayer, linePoints, getTextureToolPixelValue(), false);
       state.textureBuilder.shapeStart = null;
@@ -1215,6 +1410,7 @@
 
     const brushPoints = getBrushPoints(row, col, state.textureBuilder.brushSize);
     applyTextureStrokeToLayer(activeLayer, brushPoints, getTextureToolPixelValue(), true);
+    markTextureStrokeChanged();
     renderTextureGrid();
   }
 
@@ -1578,6 +1774,9 @@
   function handleTexturePointerDown(cell) {
     state.textureBuilder.lastPaintedCellKey = '';
     if (isTextureDragPaintTool(state.textureBuilder.activeTool)) {
+      if (canEditActiveTextureLayer()) {
+        beginTextureStrokeHistoryIfNeeded();
+      }
       state.textureBuilder.isPainting = true;
     }
     paintTextureCellFromElement(cell);
@@ -1659,6 +1858,7 @@
   }
 
   function addTextureLayer() {
+    pushTextureUndoState();
     const layer = createTextureLayer('Layer ' + (state.textureBuilder.layers.length + 1), state.textureBuilder.size);
     state.textureBuilder.layers.push(layer);
     state.textureBuilder.activeLayerId = layer.id;
@@ -1678,6 +1878,7 @@
     if (!window.confirm('Clear all pixels on active layer?')) {
       return;
     }
+    pushTextureUndoState();
     layer.pixels = createLayerGrid(state.textureBuilder.size, state.textureBuilder.size, null);
     renderTextureGrid();
     updateTextureStatus('Active layer cleared.');
@@ -1700,14 +1901,17 @@
     if (action === 'activate') {
       state.textureBuilder.activeLayerId = layerId;
     } else if (action === 'up' && index < state.textureBuilder.layers.length - 1) {
+      pushTextureUndoState();
       const temp = state.textureBuilder.layers[index + 1];
       state.textureBuilder.layers[index + 1] = state.textureBuilder.layers[index];
       state.textureBuilder.layers[index] = temp;
     } else if (action === 'down' && index > 0) {
+      pushTextureUndoState();
       const swap = state.textureBuilder.layers[index - 1];
       state.textureBuilder.layers[index - 1] = state.textureBuilder.layers[index];
       state.textureBuilder.layers[index] = swap;
     } else if (action === 'delete' && state.textureBuilder.layers.length > 1) {
+      pushTextureUndoState();
       state.textureBuilder.layers.splice(index, 1);
       if (state.textureBuilder.activeLayerId === layerId) {
         state.textureBuilder.activeLayerId = state.textureBuilder.layers[Math.max(0, index - 1)].id;
@@ -1733,12 +1937,16 @@
     }
 
     if (field === 'name') {
+      pushTextureUndoState();
       layer.name = String(input.value || '').trim() || 'Layer';
     } else if (field === 'visible') {
+      pushTextureUndoState();
       layer.visible = Boolean(input.checked);
     } else if (field === 'locked') {
+      pushTextureUndoState();
       layer.locked = Boolean(input.checked);
     } else if (field === 'opacity') {
+      pushTextureUndoState();
       const nextOpacity = Number(input.value);
       layer.opacity = Number.isFinite(nextOpacity) ? Math.max(0, Math.min(1, nextOpacity)) : 1;
     }
@@ -1752,6 +1960,7 @@
     reader.onload = function () {
       try {
         const parsed = JSON.parse(String(reader.result));
+        pushTextureUndoState();
         applyImportedTexturePayload(parsed);
         updateTextureStatus('Texture imported successfully.');
       } catch (error) {
@@ -1815,7 +2024,7 @@
       if (normalizedPixels.length !== size) {
         throw new Error('Imported legacy pixels must match selected size.');
       }
-      resetTextureLayers(size);
+      resetTextureLayers(size, false);
       state.textureBuilder.layers[0].pixels = normalizedPixels;
     } else {
       throw new Error('Unsupported texture JSON format.');
