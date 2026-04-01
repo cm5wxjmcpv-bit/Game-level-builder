@@ -273,12 +273,21 @@
       <div class="actions">
         <label class="field-label" for="textureFilenameInput">Texture Filename</label>
         <input id="textureFilenameInput" class="text-input" type="text" value="texture_16x16" />
+        <button id="textureSaveToLibraryBtn" type="button" class="secondary-btn">Save to Custom Texture Library</button>
         <button id="textureExportBtn" type="button">Export Texture JSON</button>
         <button id="textureExportPngBtn" type="button" class="secondary-btn">Export Texture PNG</button>
         <button id="textureExportEngineEntryBtn" type="button" class="secondary-btn">Export Engine Texture Entry</button>
         <label for="textureImportInput" class="file-label">Import Texture JSON</label>
         <input id="textureImportInput" type="file" accept="application/json" />
       </div>
+
+      <h2>Custom Texture Library</h2>
+      <div class="actions">
+        <button id="textureLibraryExportBtn" type="button" class="secondary-btn">Export Custom Texture Library</button>
+        <label for="textureLibraryImportInput" class="file-label">Import Custom Texture Library</label>
+        <input id="textureLibraryImportInput" type="file" accept="application/json" />
+      </div>
+      <div id="textureLibraryList" class="item-list" aria-label="Custom texture library list"></div>
 
       <div class="status-box">
         <p><strong>Size:</strong> <span id="textureSizeLabel">16</span> x <span id="textureSizeLabel2">16</span></p>
