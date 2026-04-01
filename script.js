@@ -7,6 +7,7 @@
   const TEXTURE_CUSTOM_COLORS_STORAGE_KEY = 'levelBuilderTextureCustomColors';
   const TEXTURE_MAX_SAVED_CUSTOM_COLORS = 16;
   const TEXTURE_HISTORY_LIMIT = 30;
+  const MAP_HISTORY_LIMIT = 30;
   const MAX_MAP_SIDE = 200;
   const TEXTURE_COLORS = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', null];
   const TEXTURE_SIZES = [16, 32, 64];
@@ -350,8 +351,16 @@
     eraserBtn: document.getElementById('eraserBtn'),
     paintToolBtn: document.getElementById('paintToolBtn'),
     fillToolBtn: document.getElementById('fillToolBtn'),
+    mapHBarToolBtn: document.getElementById('mapHBarToolBtn'),
+    mapVBarToolBtn: document.getElementById('mapVBarToolBtn'),
+    mapLineToolBtn: document.getElementById('mapLineToolBtn'),
     layerTileBtn: document.getElementById('layerTileBtn'),
     layerObjectBtn: document.getElementById('layerObjectBtn'),
+    mapBrushSizeSelect: document.getElementById('mapBrushSizeSelect'),
+    mapBarLengthInput: document.getElementById('mapBarLengthInput'),
+    mapBarThicknessInput: document.getElementById('mapBarThicknessInput'),
+    mapUndoBtn: document.getElementById('mapUndoBtn'),
+    mapRedoBtn: document.getElementById('mapRedoBtn'),
     selectedToolLabel: document.getElementById('selectedToolLabel'),
     activeToolLabel: document.getElementById('activeToolLabel'),
     activeLayerLabel: document.getElementById('activeLayerLabel'),
@@ -453,6 +462,14 @@
     },
     activeLayer: 'tile',
     activeTool: 'paint',
+    mapBrushSize: 1,
+    mapBarLength: 8,
+    mapBarThickness: 1,
+    mapShapeStart: null,
+    mapUndoStack: [],
+    mapRedoStack: [],
+    mapPendingStrokeSnapshot: null,
+    mapHasPendingStrokeChange: false,
     isPainting: false,
     lastPaintedCellKey: '',
     activeTab: 'mapEditor',
@@ -490,6 +507,10 @@
     bindEvents();
     updateActiveLayerButtons();
     updateActiveToolButtonState();
+    dom.mapBrushSizeSelect.value = String(state.mapBrushSize);
+    dom.mapBarLengthInput.value = String(state.mapBarLength);
+    dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+    updateMapUndoRedoButtons();
     syncMapInputsFromState();
     updateMapLabels();
     updateSelectedToolLabel();
@@ -625,7 +646,12 @@
         return;
       }
       event.preventDefault();
-      state.isPainting = true;
+      if (state.activeTool === 'paint') {
+        beginMapStrokeHistoryIfNeeded();
+        state.isPainting = true;
+      } else {
+        state.isPainting = false;
+      }
       state.lastPaintedCellKey = '';
       paintCellFromElement(cell);
     });
@@ -644,6 +670,7 @@
     document.addEventListener('mouseup', function () {
       state.isPainting = false;
       state.lastPaintedCellKey = '';
+      finalizeMapStrokeHistory();
       finalizeTextureStrokeHistory();
       state.textureBuilder.isPainting = false;
       state.textureBuilder.lastPaintedCellKey = '';
@@ -660,6 +687,7 @@
     dom.layerTileBtn.addEventListener('click', function () {
       state.activeLayer = 'tile';
       state.activeTool = state.activeTool === 'fill' ? 'fill' : 'paint';
+      state.mapShapeStart = null;
       onActiveLayerChanged();
     });
 
@@ -668,17 +696,20 @@
       if (state.activeTool === 'fill') {
         state.activeTool = 'paint';
       }
+      state.mapShapeStart = null;
       onActiveLayerChanged();
     });
 
     dom.eraserBtn.addEventListener('click', function () {
       setSelectedForActiveLayer(state.activeLayer === 'tile' ? TILE_IDS.empty : OBJECT_IDS.none);
       state.activeTool = 'paint';
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
     });
 
     dom.paintToolBtn.addEventListener('click', function () {
       state.activeTool = 'paint';
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
     });
 
@@ -689,7 +720,49 @@
       } else {
         state.activeTool = 'fill';
       }
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
+    });
+
+    dom.mapHBarToolBtn.addEventListener('click', function () {
+      state.activeTool = 'hbar';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapVBarToolBtn.addEventListener('click', function () {
+      state.activeTool = 'vbar';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapLineToolBtn.addEventListener('click', function () {
+      state.activeTool = 'line';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapBrushSizeSelect.addEventListener('change', function () {
+      const next = Number(dom.mapBrushSizeSelect.value);
+      state.mapBrushSize = Number.isInteger(next) ? Math.max(1, Math.min(5, next)) : 1;
+    });
+
+    dom.mapBarLengthInput.addEventListener('change', function () {
+      state.mapBarLength = clampInteger(dom.mapBarLengthInput.value, 1, 256, 8);
+      dom.mapBarLengthInput.value = String(state.mapBarLength);
+    });
+
+    dom.mapBarThicknessInput.addEventListener('change', function () {
+      state.mapBarThickness = clampInteger(dom.mapBarThicknessInput.value, 1, 32, 1);
+      dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+    });
+
+    dom.mapUndoBtn.addEventListener('click', function () {
+      undoMapAction();
+    });
+
+    dom.mapRedoBtn.addEventListener('click', function () {
+      redoMapAction();
     });
 
     dom.applySizeBtn.addEventListener('click', applySizeFromInputs);
@@ -727,6 +800,7 @@
       if (!window.confirm('Clear the entire map? This cannot be undone.')) {
         return;
       }
+      pushMapUndoState();
       state.tileLayer = createLayerGrid(state.width, state.height, TILE_IDS.empty);
       state.objectLayer = createLayerGrid(state.width, state.height, OBJECT_IDS.none);
       renderGrid();
@@ -928,7 +1002,7 @@
     dom.textureLayerList.addEventListener('change', onTextureLayerListChange);
 
     document.addEventListener('keydown', function (event) {
-      if (state.activeTab !== 'textureBuilder') {
+      if (state.activeTab !== 'textureBuilder' && state.activeTab !== 'mapEditor') {
         return;
       }
       if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.isContentEditable)) {
@@ -941,17 +1015,29 @@
       const key = String(event.key || '').toLowerCase();
       if (key === 'z' && event.shiftKey) {
         event.preventDefault();
-        redoTextureAction();
+        if (state.activeTab === 'textureBuilder') {
+          redoTextureAction();
+        } else {
+          redoMapAction();
+        }
         return;
       }
       if (key === 'y') {
         event.preventDefault();
-        redoTextureAction();
+        if (state.activeTab === 'textureBuilder') {
+          redoTextureAction();
+        } else {
+          redoMapAction();
+        }
         return;
       }
       if (key === 'z') {
         event.preventDefault();
-        undoTextureAction();
+        if (state.activeTab === 'textureBuilder') {
+          undoTextureAction();
+        } else {
+          undoMapAction();
+        }
       }
     });
 
@@ -2034,6 +2120,218 @@
     renderTextureGrid();
   }
 
+  function createMapHistorySnapshot() {
+    return {
+      width: state.width,
+      height: state.height,
+      mapType: state.mapType,
+      mapId: state.mapId,
+      mapName: state.mapName,
+      tileLayer: cloneLayer(state.tileLayer),
+      objectLayer: cloneLayer(state.objectLayer),
+      activeLayer: state.activeLayer,
+      selectedByLayer: {
+        tile: state.selectedByLayer.tile,
+        object: state.selectedByLayer.object
+      },
+      activeTool: state.activeTool,
+      mapBrushSize: state.mapBrushSize,
+      mapBarLength: state.mapBarLength,
+      mapBarThickness: state.mapBarThickness
+    };
+  }
+
+  function restoreMapHistorySnapshot(snapshot) {
+    state.width = snapshot.width;
+    state.height = snapshot.height;
+    state.mapType = snapshot.mapType;
+    state.mapId = snapshot.mapId;
+    state.mapName = snapshot.mapName;
+    state.tileLayer = cloneLayer(snapshot.tileLayer);
+    state.objectLayer = cloneLayer(snapshot.objectLayer);
+    state.activeLayer = snapshot.activeLayer;
+    state.selectedByLayer.tile = snapshot.selectedByLayer.tile;
+    state.selectedByLayer.object = snapshot.selectedByLayer.object;
+    state.activeTool = snapshot.activeTool;
+    state.mapBrushSize = snapshot.mapBrushSize;
+    state.mapBarLength = snapshot.mapBarLength;
+    state.mapBarThickness = snapshot.mapBarThickness;
+    state.mapShapeStart = null;
+
+    dom.mapBrushSizeSelect.value = String(state.mapBrushSize);
+    dom.mapBarLengthInput.value = String(state.mapBarLength);
+    dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+
+    syncMapInputsFromState();
+    updateMapLabels();
+    renderPalette();
+    renderLegend();
+    ensureSelectedVisible();
+    updateActiveLayerButtons();
+    updateActiveToolButtonState();
+    renderGrid();
+  }
+
+  function snapshotsEqualForMap(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function pushMapUndoState() {
+    const snapshot = createMapHistorySnapshot();
+    const undoStack = state.mapUndoStack;
+    const last = undoStack.length ? undoStack[undoStack.length - 1] : null;
+    if (!last || !snapshotsEqualForMap(last, snapshot)) {
+      undoStack.push(snapshot);
+      if (undoStack.length > MAP_HISTORY_LIMIT) {
+        undoStack.shift();
+      }
+    }
+    state.mapRedoStack = [];
+    updateMapUndoRedoButtons();
+  }
+
+  function undoMapAction() {
+    if (!state.mapUndoStack.length) {
+      return;
+    }
+    const current = createMapHistorySnapshot();
+    const previous = state.mapUndoStack.pop();
+    state.mapRedoStack.push(current);
+    if (state.mapRedoStack.length > MAP_HISTORY_LIMIT) {
+      state.mapRedoStack.shift();
+    }
+    restoreMapHistorySnapshot(previous);
+    updateMapUndoRedoButtons();
+    updateStatus('Map undo applied.');
+  }
+
+  function redoMapAction() {
+    if (!state.mapRedoStack.length) {
+      return;
+    }
+    const current = createMapHistorySnapshot();
+    const next = state.mapRedoStack.pop();
+    state.mapUndoStack.push(current);
+    if (state.mapUndoStack.length > MAP_HISTORY_LIMIT) {
+      state.mapUndoStack.shift();
+    }
+    restoreMapHistorySnapshot(next);
+    updateMapUndoRedoButtons();
+    updateStatus('Map redo applied.');
+  }
+
+  function updateMapUndoRedoButtons() {
+    if (!dom.mapUndoBtn || !dom.mapRedoBtn) {
+      return;
+    }
+    dom.mapUndoBtn.disabled = state.mapUndoStack.length === 0;
+    dom.mapRedoBtn.disabled = state.mapRedoStack.length === 0;
+  }
+
+  function beginMapStrokeHistoryIfNeeded() {
+    if (state.mapPendingStrokeSnapshot) {
+      return;
+    }
+    state.mapPendingStrokeSnapshot = createMapHistorySnapshot();
+    state.mapHasPendingStrokeChange = false;
+  }
+
+  function markMapStrokeChanged() {
+    state.mapHasPendingStrokeChange = true;
+  }
+
+  function finalizeMapStrokeHistory() {
+    if (!state.mapPendingStrokeSnapshot) {
+      return;
+    }
+    if (state.mapHasPendingStrokeChange) {
+      const prior = state.mapPendingStrokeSnapshot;
+      const current = createMapHistorySnapshot();
+      if (!snapshotsEqualForMap(prior, current)) {
+        state.mapUndoStack.push(prior);
+        if (state.mapUndoStack.length > MAP_HISTORY_LIMIT) {
+          state.mapUndoStack.shift();
+        }
+        state.mapRedoStack = [];
+      }
+      updateMapUndoRedoButtons();
+    }
+    state.mapPendingStrokeSnapshot = null;
+    state.mapHasPendingStrokeChange = false;
+  }
+
+  function getMapBrushPoints(centerRow, centerCol, brushSize) {
+    const points = [];
+    const startOffset = Math.floor(brushSize / 2);
+    for (let row = centerRow - startOffset; row < centerRow - startOffset + brushSize; row += 1) {
+      for (let col = centerCol - startOffset; col < centerCol - startOffset + brushSize; col += 1) {
+        if (!isInsideMap(col, row)) {
+          continue;
+        }
+        points.push([row, col]);
+      }
+    }
+    return points;
+  }
+
+  function getMapBarToolPoints(row, col, tool) {
+    const length = clampInteger(state.mapBarLength, 1, 256, 8);
+    const thickness = clampInteger(state.mapBarThickness, 1, 32, 1);
+    const points = [];
+    for (let t = 0; t < thickness; t += 1) {
+      for (let i = 0; i < length; i += 1) {
+        const nextRow = tool === 'hbar' ? row + t : row + i;
+        const nextCol = tool === 'hbar' ? col + i : col + t;
+        if (!isInsideMap(nextCol, nextRow)) {
+          continue;
+        }
+        points.push([nextRow, nextCol]);
+      }
+    }
+    return points;
+  }
+
+  function getMapLineToolPoints(startRow, startCol, endRow, endCol, thickness) {
+    const points = [];
+    const dr = Math.abs(endRow - startRow);
+    const dc = Math.abs(endCol - startCol);
+    const stepR = startRow < endRow ? 1 : -1;
+    const stepC = startCol < endCol ? 1 : -1;
+    let err = dc - dr;
+    let row = startRow;
+    let col = startCol;
+    while (true) {
+      getMapBrushPoints(row, col, Math.max(1, thickness)).forEach(function (point) {
+        points.push(point);
+      });
+      if (row === endRow && col === endCol) {
+        break;
+      }
+      const e2 = err * 2;
+      if (e2 > -dr) {
+        err -= dr;
+        col += stepC;
+      }
+      if (e2 < dc) {
+        err += dc;
+        row += stepR;
+      }
+    }
+    return points;
+  }
+
+  function applyMapStrokeToLayer(points) {
+    // Safety: object-layer bulk drawing with unique markers can create confusing outcomes.
+    // We conservatively restrict object-layer tools to single-cell placement.
+    if (state.activeLayer === 'object' && points.length > 1) {
+      points = [points[0]];
+      updateStatus('Object layer shape/brush is limited to single-cell placement for safety.');
+    }
+    points.forEach(function (point) {
+      applySelectedAt(point[0], point[1]);
+    });
+  }
+
   function onActiveLayerChanged() {
     updateActiveLayerButtons();
     if (state.activeLayer === 'object' && state.activeTool === 'fill') {
@@ -2087,6 +2385,7 @@
       return;
     }
 
+    pushMapUndoState();
     resizeMap(nextWidth, nextHeight);
   }
 
@@ -2132,9 +2431,33 @@
     }
 
     if (state.activeTool === 'fill') {
+      pushMapUndoState();
       applyFillAt(row, col, state.selectedByLayer.tile);
       renderGrid();
       updateStatus('Fill applied from (' + col + ', ' + row + ').');
+      return;
+    }
+
+    if (state.activeTool === 'hbar' || state.activeTool === 'vbar') {
+      pushMapUndoState();
+      const barPoints = getMapBarToolPoints(row, col, state.activeTool);
+      applyMapStrokeToLayer(barPoints);
+      renderGrid();
+      return;
+    }
+
+    if (state.activeTool === 'line') {
+      if (!state.mapShapeStart) {
+        state.mapShapeStart = { row: row, col: col };
+        updateStatus('Line start set. Click end point to commit line.');
+        return;
+      }
+      pushMapUndoState();
+      const linePoints = getMapLineToolPoints(state.mapShapeStart.row, state.mapShapeStart.col, row, col, state.mapBarThickness);
+      applyMapStrokeToLayer(linePoints);
+      state.mapShapeStart = null;
+      renderGrid();
+      updateStatus('Line committed.');
       return;
     }
 
@@ -2144,9 +2467,16 @@
     }
     state.lastPaintedCellKey = currentKey;
 
-    applySelectedAt(row, col);
-    const marker = cell.querySelector('.cell-marker');
-    applyCellVisual(cell, marker, state.tileLayer[row][col], state.objectLayer[row][col]);
+    let brushSize = state.mapBrushSize;
+    if (state.activeLayer === 'object' && brushSize > 1) {
+      brushSize = 1;
+      updateStatus('Object layer brush is limited to 1px for safety.');
+    }
+
+    const points = getMapBrushPoints(row, col, brushSize);
+    applyMapStrokeToLayer(points);
+    markMapStrokeChanged();
+    renderGrid();
   }
 
   function applyFillAt(startRow, startCol, tileId) {
@@ -2247,8 +2577,14 @@
   function updateActiveToolButtonState() {
     dom.paintToolBtn.classList.toggle('active', state.activeTool === 'paint');
     dom.fillToolBtn.classList.toggle('active', state.activeTool === 'fill');
+    dom.mapHBarToolBtn.classList.toggle('active', state.activeTool === 'hbar');
+    dom.mapVBarToolBtn.classList.toggle('active', state.activeTool === 'vbar');
+    dom.mapLineToolBtn.classList.toggle('active', state.activeTool === 'line');
     dom.fillToolBtn.disabled = state.activeLayer === 'object';
-    dom.activeToolLabel.textContent = state.activeTool === 'fill' ? 'Fill' : 'Paint';
+    dom.activeToolLabel.textContent = state.activeTool === 'fill' ? 'Fill' :
+      state.activeTool === 'hbar' ? 'Horizontal Bar' :
+        state.activeTool === 'vbar' ? 'Vertical Bar' :
+          state.activeTool === 'line' ? 'Angled Line' : 'Paint';
   }
 
   function exportRawMapToFile() {
@@ -2534,6 +2870,7 @@
       try {
         const parsed = JSON.parse(String(reader.result));
         const normalized = normalizeImportedPayload(parsed);
+        pushMapUndoState();
         applyImportedMap(normalized);
         updateStatus('Map imported successfully.');
       } catch (error) {

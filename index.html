@@ -59,6 +59,29 @@
         <button id="paintToolBtn" type="button" class="secondary-btn">Paint Tool</button>
         <button id="fillToolBtn" type="button" class="secondary-btn">Fill Tool</button>
         <button id="eraserBtn" type="button" class="secondary-btn">Eraser</button>
+        <button id="mapHBarToolBtn" type="button" class="secondary-btn">Horizontal Bar</button>
+        <button id="mapVBarToolBtn" type="button" class="secondary-btn">Vertical Bar</button>
+        <button id="mapLineToolBtn" type="button" class="secondary-btn">Angled Line</button>
+      </div>
+      <div class="actions">
+        <label class="field-label" for="mapBrushSizeSelect">Brush Size</label>
+        <select id="mapBrushSizeSelect" class="text-input">
+          <option value="1">1px</option>
+          <option value="2">2px</option>
+          <option value="3">3px</option>
+          <option value="4">4px</option>
+          <option value="5">5px</option>
+        </select>
+
+        <label class="field-label" for="mapBarLengthInput">Bar/Line Length</label>
+        <input id="mapBarLengthInput" class="text-input" type="number" min="1" max="256" value="8" />
+
+        <label class="field-label" for="mapBarThicknessInput">Bar/Line Thickness</label>
+        <input id="mapBarThicknessInput" class="text-input" type="number" min="1" max="32" value="1" />
+      </div>
+      <div class="item-editor-actions">
+        <button id="mapUndoBtn" type="button" class="secondary-btn">Undo</button>
+        <button id="mapRedoBtn" type="button" class="secondary-btn">Redo</button>
       </div>
 
       <h2>Map Actions</h2>
