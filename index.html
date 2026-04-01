@@ -211,7 +211,38 @@
         <button id="texturePaintToolBtn" type="button" class="secondary-btn">Paint Tool</button>
         <button id="textureFillToolBtn" type="button" class="secondary-btn">Fill Tool</button>
         <button id="textureEraserBtn" type="button" class="secondary-btn">Eraser</button>
+        <button id="textureHighlighterToolBtn" type="button" class="secondary-btn">Highlighter</button>
+        <button id="textureEyedropperToolBtn" type="button" class="secondary-btn">Eyedropper</button>
+        <button id="textureHBarToolBtn" type="button" class="secondary-btn">Horizontal Bar</button>
+        <button id="textureVBarToolBtn" type="button" class="secondary-btn">Vertical Bar</button>
+        <button id="textureLineToolBtn" type="button" class="secondary-btn">Angled Line</button>
       </div>
+      <div class="actions">
+        <label class="field-label" for="textureBrushSizeSelect">Brush Size</label>
+        <select id="textureBrushSizeSelect" class="text-input">
+          <option value="1">1px</option>
+          <option value="2">2px</option>
+          <option value="3">3px</option>
+          <option value="4">4px</option>
+          <option value="5">5px</option>
+        </select>
+
+        <label class="field-label" for="textureHighlighterOpacityInput">Highlighter Opacity</label>
+        <input id="textureHighlighterOpacityInput" class="text-input" type="range" min="0.05" max="1" step="0.05" value="0.35" />
+
+        <label class="field-label" for="textureBarLengthInput">Bar/Line Length</label>
+        <input id="textureBarLengthInput" class="text-input" type="number" min="1" max="256" value="8" />
+
+        <label class="field-label" for="textureBarThicknessInput">Bar/Line Thickness</label>
+        <input id="textureBarThicknessInput" class="text-input" type="number" min="1" max="32" value="1" />
+      </div>
+
+      <h2>Texture Layers</h2>
+      <div class="item-editor-actions">
+        <button id="textureAddLayerBtn" type="button" class="secondary-btn">Add Layer</button>
+        <button id="textureClearLayerBtn" type="button" class="danger-btn">Clear Active Layer</button>
+      </div>
+      <div id="textureLayerList" class="texture-layer-list" aria-label="Texture layer list"></div>
 
       <h2>Texture Actions</h2>
       <div class="actions">
@@ -220,6 +251,8 @@
         <button id="textureExportBtn" type="button">Export Texture JSON</button>
         <button id="textureExportPngBtn" type="button" class="secondary-btn">Export Texture PNG</button>
         <button id="textureExportEngineEntryBtn" type="button" class="secondary-btn">Export Engine Texture Entry</button>
+        <label for="textureImportInput" class="file-label">Import Texture JSON</label>
+        <input id="textureImportInput" type="file" accept="application/json" />
       </div>
 
       <div class="status-box">
