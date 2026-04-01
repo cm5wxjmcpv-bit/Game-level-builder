@@ -5,7 +5,10 @@
   const DEFAULT_HEIGHT = 30;
   const STORAGE_PREVIEW_KEY = 'levelBuilderPreviewMap';
   const TEXTURE_CUSTOM_COLORS_STORAGE_KEY = 'levelBuilderTextureCustomColors';
+  const CUSTOM_TEXTURE_LIBRARY_STORAGE_KEY = 'levelBuilderCustomTextureLibrary';
   const TEXTURE_MAX_SAVED_CUSTOM_COLORS = 16;
+  const TEXTURE_HISTORY_LIMIT = 30;
+  const MAP_HISTORY_LIMIT = 30;
   const MAX_MAP_SIDE = 200;
   const TEXTURE_COLORS = ['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', null];
   const TEXTURE_SIZES = [16, 32, 64];
@@ -349,8 +352,16 @@
     eraserBtn: document.getElementById('eraserBtn'),
     paintToolBtn: document.getElementById('paintToolBtn'),
     fillToolBtn: document.getElementById('fillToolBtn'),
+    mapHBarToolBtn: document.getElementById('mapHBarToolBtn'),
+    mapVBarToolBtn: document.getElementById('mapVBarToolBtn'),
+    mapLineToolBtn: document.getElementById('mapLineToolBtn'),
     layerTileBtn: document.getElementById('layerTileBtn'),
     layerObjectBtn: document.getElementById('layerObjectBtn'),
+    mapBrushSizeSelect: document.getElementById('mapBrushSizeSelect'),
+    mapBarLengthInput: document.getElementById('mapBarLengthInput'),
+    mapBarThicknessInput: document.getElementById('mapBarThicknessInput'),
+    mapUndoBtn: document.getElementById('mapUndoBtn'),
+    mapRedoBtn: document.getElementById('mapRedoBtn'),
     selectedToolLabel: document.getElementById('selectedToolLabel'),
     activeToolLabel: document.getElementById('activeToolLabel'),
     activeLayerLabel: document.getElementById('activeLayerLabel'),
@@ -411,10 +422,29 @@
     texturePaintToolBtn: document.getElementById('texturePaintToolBtn'),
     textureFillToolBtn: document.getElementById('textureFillToolBtn'),
     textureEraserBtn: document.getElementById('textureEraserBtn'),
+    textureHighlighterToolBtn: document.getElementById('textureHighlighterToolBtn'),
+    textureEyedropperToolBtn: document.getElementById('textureEyedropperToolBtn'),
+    textureHBarToolBtn: document.getElementById('textureHBarToolBtn'),
+    textureVBarToolBtn: document.getElementById('textureVBarToolBtn'),
+    textureLineToolBtn: document.getElementById('textureLineToolBtn'),
+    textureBrushSizeSelect: document.getElementById('textureBrushSizeSelect'),
+    textureHighlighterOpacityInput: document.getElementById('textureHighlighterOpacityInput'),
+    textureBarLengthInput: document.getElementById('textureBarLengthInput'),
+    textureBarThicknessInput: document.getElementById('textureBarThicknessInput'),
+    textureLayerList: document.getElementById('textureLayerList'),
+    textureUndoBtn: document.getElementById('textureUndoBtn'),
+    textureRedoBtn: document.getElementById('textureRedoBtn'),
+    textureAddLayerBtn: document.getElementById('textureAddLayerBtn'),
+    textureClearLayerBtn: document.getElementById('textureClearLayerBtn'),
     textureFilenameInput: document.getElementById('textureFilenameInput'),
+    textureSaveToLibraryBtn: document.getElementById('textureSaveToLibraryBtn'),
     textureExportBtn: document.getElementById('textureExportBtn'),
     textureExportPngBtn: document.getElementById('textureExportPngBtn'),
     textureExportEngineEntryBtn: document.getElementById('textureExportEngineEntryBtn'),
+    textureImportInput: document.getElementById('textureImportInput'),
+    textureLibraryExportBtn: document.getElementById('textureLibraryExportBtn'),
+    textureLibraryImportInput: document.getElementById('textureLibraryImportInput'),
+    textureLibraryList: document.getElementById('textureLibraryList'),
     textureGridContainer: document.getElementById('textureGridContainer'),
     textureSizeLabel: document.getElementById('textureSizeLabel'),
     textureSizeLabel2: document.getElementById('textureSizeLabel2'),
@@ -437,17 +467,41 @@
     },
     activeLayer: 'tile',
     activeTool: 'paint',
+    mapBrushSize: 1,
+    mapBarLength: 8,
+    mapBarThickness: 1,
+    mapShapeStart: null,
+    mapUndoStack: [],
+    mapRedoStack: [],
+    mapPendingStrokeSnapshot: null,
+    mapHasPendingStrokeChange: false,
     isPainting: false,
     lastPaintedCellKey: '',
     activeTab: 'mapEditor',
     itemDb: { items: [] },
+    customTextureLibrary: {
+      version: 1,
+      textures: []
+    },
     selectedItemIndex: -1,
     textureBuilder: {
       size: 16,
-      pixels: createLayerGrid(16, 16, null),
+      layers: [],
+      activeLayerId: '',
       selectedColor: '#000000',
       customColors: [],
       activeTool: 'paint',
+      brushSize: 1,
+      highlighterOpacity: 0.35,
+      barLength: 8,
+      barThickness: 1,
+      previewCells: [],
+      shapeStart: null,
+      nextLayerId: 1,
+      undoStack: [],
+      redoStack: [],
+      pendingStrokeSnapshot: null,
+      hasPendingStrokeChange: false,
       isPainting: false,
       lastPaintedCellKey: ''
     }
@@ -456,12 +510,18 @@
   initialize();
 
   function initialize() {
+    state.customTextureLibrary = loadCustomTextureLibraryFromStorage();
+    syncCustomTextureDefinitionsFromLibrary();
     renderPalette();
     renderLegend();
     renderGrid();
     bindEvents();
     updateActiveLayerButtons();
     updateActiveToolButtonState();
+    dom.mapBrushSizeSelect.value = String(state.mapBrushSize);
+    dom.mapBarLengthInput.value = String(state.mapBarLength);
+    dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+    updateMapUndoRedoButtons();
     syncMapInputsFromState();
     updateMapLabels();
     updateSelectedToolLabel();
@@ -469,6 +529,7 @@
     resetItemFormToDefaults();
     updateItemConditionalFields();
     initializeTextureBuilder();
+    renderCustomTextureLibraryList();
     updateStatus('Ready. Click or drag on the grid to paint tiles and markers.');
   }
 
@@ -484,10 +545,159 @@
     });
   }
 
+  function getEmptyCustomTextureLibrary() {
+    return {
+      version: 1,
+      textures: []
+    };
+  }
+
+  function normalizeCustomTextureId(value) {
+    const base = String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return base.indexOf('custom_texture_') === 0 ? base : 'custom_texture_' + (base || 'unnamed');
+  }
+
+  function isCustomTextureId(id) {
+    return String(id || '').indexOf('custom_texture_') === 0;
+  }
+
+  function normalizeCustomTextureLibraryPayload(payload) {
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.textures)) {
+      return getEmptyCustomTextureLibrary();
+    }
+    const normalized = [];
+    const seen = new Set();
+    payload.textures.forEach(function (entry, index) {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      const size = Number(entry.size);
+      if (TEXTURE_SIZES.indexOf(size) === -1) {
+        return;
+      }
+      const pixels = Array.isArray(entry.pixels) ? entry.pixels : null;
+      if (!pixels || pixels.length !== size) {
+        return;
+      }
+      const normalizedPixels = [];
+      let valid = true;
+      pixels.forEach(function (row) {
+        if (!Array.isArray(row) || row.length !== size) {
+          valid = false;
+          return;
+        }
+        normalizedPixels.push(row.map(function (pixel) {
+          return normalizeTexturePixel(pixel);
+        }));
+      });
+      if (!valid) {
+        return;
+      }
+      const id = normalizeCustomTextureId(entry.id || entry.name || ('texture_' + index));
+      if (seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+      normalized.push({
+        id: id,
+        name: String(entry.name || id),
+        size: size,
+        pixels: normalizedPixels,
+        previewColor: buildCustomTexturePreviewData(normalizedPixels),
+        createdAt: String(entry.createdAt || new Date().toISOString()),
+        updatedAt: String(entry.updatedAt || new Date().toISOString())
+      });
+    });
+    return {
+      version: 1,
+      textures: normalized
+    };
+  }
+
+  function loadCustomTextureLibraryFromStorage() {
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_TEXTURE_LIBRARY_STORAGE_KEY);
+      if (!raw) {
+        return getEmptyCustomTextureLibrary();
+      }
+      const parsed = JSON.parse(raw);
+      return normalizeCustomTextureLibraryPayload(parsed);
+    } catch (error) {
+      return getEmptyCustomTextureLibrary();
+    }
+  }
+
+  function saveCustomTextureLibraryToStorage(library) {
+    try {
+      window.localStorage.setItem(CUSTOM_TEXTURE_LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    } catch (error) {
+      // Ignore storage failures and keep app usable.
+    }
+  }
+
+  function buildCustomTexturePreviewData(pixels) {
+    let totalR = 0;
+    let totalG = 0;
+    let totalB = 0;
+    let count = 0;
+    pixels.forEach(function (row) {
+      row.forEach(function (pixel) {
+        const normalized = normalizeTexturePixel(pixel);
+        if (!normalized) {
+          return;
+        }
+        const color = normalized.color;
+        totalR += parseInt(color.slice(1, 3), 16);
+        totalG += parseInt(color.slice(3, 5), 16);
+        totalB += parseInt(color.slice(5, 7), 16);
+        count += 1;
+      });
+    });
+    if (!count) {
+      return '#9ca3af';
+    }
+    const r = Math.round(totalR / count).toString(16).padStart(2, '0');
+    const g = Math.round(totalG / count).toString(16).padStart(2, '0');
+    const b = Math.round(totalB / count).toString(16).padStart(2, '0');
+    return '#' + r + g + b;
+  }
+
+  function syncCustomTextureDefinitionsFromLibrary() {
+    Object.keys(DEFS_BY_ID).forEach(function (id) {
+      if (isCustomTextureId(id)) {
+        delete DEFS_BY_ID[id];
+      }
+    });
+    state.customTextureLibrary.textures.forEach(function (texture) {
+      DEFS_BY_ID[texture.id] = {
+        id: texture.id,
+        label: 'Custom: ' + texture.name,
+        layer: 'tile',
+        group: 'Custom Textures',
+        color: texture.previewColor || '#9ca3af',
+        mapTypes: ['level', 'town']
+      };
+    });
+  }
+
   function getVisiblePaletteDefinitions() {
-    return PALETTE_DEFINITIONS.filter(function (def) {
+    const base = PALETTE_DEFINITIONS.filter(function (def) {
       return def.layer === state.activeLayer && def.mapTypes.indexOf(state.mapType) !== -1;
     });
+    if (state.activeLayer !== 'tile') {
+      return base;
+    }
+    const custom = state.customTextureLibrary.textures.map(function (texture) {
+      return DEFS_BY_ID[texture.id];
+    }).filter(function (def) {
+      return def && def.mapTypes.indexOf(state.mapType) !== -1;
+    });
+    return base.concat(custom);
   }
 
   function renderPalette() {
@@ -546,7 +756,10 @@
 
   function renderLegend() {
     dom.tileLegend.innerHTML = '';
-    PALETTE_DEFINITIONS.filter(function (entry) {
+    const entries = PALETTE_DEFINITIONS.concat(state.customTextureLibrary.textures.map(function (texture) {
+      return DEFS_BY_ID[texture.id];
+    }).filter(Boolean));
+    entries.filter(function (entry) {
       return entry.mapTypes.indexOf(state.mapType) !== -1;
     }).forEach(function (entry) {
       const li = document.createElement('li');
@@ -597,7 +810,12 @@
         return;
       }
       event.preventDefault();
-      state.isPainting = true;
+      if (state.activeTool === 'paint') {
+        beginMapStrokeHistoryIfNeeded();
+        state.isPainting = true;
+      } else {
+        state.isPainting = false;
+      }
       state.lastPaintedCellKey = '';
       paintCellFromElement(cell);
     });
@@ -616,6 +834,8 @@
     document.addEventListener('mouseup', function () {
       state.isPainting = false;
       state.lastPaintedCellKey = '';
+      finalizeMapStrokeHistory();
+      finalizeTextureStrokeHistory();
       state.textureBuilder.isPainting = false;
       state.textureBuilder.lastPaintedCellKey = '';
     });
@@ -631,6 +851,7 @@
     dom.layerTileBtn.addEventListener('click', function () {
       state.activeLayer = 'tile';
       state.activeTool = state.activeTool === 'fill' ? 'fill' : 'paint';
+      state.mapShapeStart = null;
       onActiveLayerChanged();
     });
 
@@ -639,17 +860,20 @@
       if (state.activeTool === 'fill') {
         state.activeTool = 'paint';
       }
+      state.mapShapeStart = null;
       onActiveLayerChanged();
     });
 
     dom.eraserBtn.addEventListener('click', function () {
       setSelectedForActiveLayer(state.activeLayer === 'tile' ? TILE_IDS.empty : OBJECT_IDS.none);
       state.activeTool = 'paint';
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
     });
 
     dom.paintToolBtn.addEventListener('click', function () {
       state.activeTool = 'paint';
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
     });
 
@@ -660,7 +884,49 @@
       } else {
         state.activeTool = 'fill';
       }
+      state.mapShapeStart = null;
       updateActiveToolButtonState();
+    });
+
+    dom.mapHBarToolBtn.addEventListener('click', function () {
+      state.activeTool = 'hbar';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapVBarToolBtn.addEventListener('click', function () {
+      state.activeTool = 'vbar';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapLineToolBtn.addEventListener('click', function () {
+      state.activeTool = 'line';
+      state.mapShapeStart = null;
+      updateActiveToolButtonState();
+    });
+
+    dom.mapBrushSizeSelect.addEventListener('change', function () {
+      const next = Number(dom.mapBrushSizeSelect.value);
+      state.mapBrushSize = Number.isInteger(next) ? Math.max(1, Math.min(5, next)) : 1;
+    });
+
+    dom.mapBarLengthInput.addEventListener('change', function () {
+      state.mapBarLength = clampInteger(dom.mapBarLengthInput.value, 1, 256, 8);
+      dom.mapBarLengthInput.value = String(state.mapBarLength);
+    });
+
+    dom.mapBarThicknessInput.addEventListener('change', function () {
+      state.mapBarThickness = clampInteger(dom.mapBarThicknessInput.value, 1, 32, 1);
+      dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+    });
+
+    dom.mapUndoBtn.addEventListener('click', function () {
+      undoMapAction();
+    });
+
+    dom.mapRedoBtn.addEventListener('click', function () {
+      redoMapAction();
     });
 
     dom.applySizeBtn.addEventListener('click', applySizeFromInputs);
@@ -698,6 +964,7 @@
       if (!window.confirm('Clear the entire map? This cannot be undone.')) {
         return;
       }
+      pushMapUndoState();
       state.tileLayer = createLayerGrid(state.width, state.height, TILE_IDS.empty);
       state.objectLayer = createLayerGrid(state.width, state.height, OBJECT_IDS.none);
       renderGrid();
@@ -755,20 +1022,19 @@
         return;
       }
       event.preventDefault();
-      state.textureBuilder.isPainting = true;
-      state.textureBuilder.lastPaintedCellKey = '';
-      paintTextureCellFromElement(cell);
+      handleTexturePointerDown(cell);
     });
 
     dom.textureGridContainer.addEventListener('mouseover', function (event) {
-      if (!state.textureBuilder.isPainting || state.textureBuilder.activeTool !== 'paint') {
-        return;
-      }
       const cell = getTextureCellFromEventTarget(event.target);
       if (!cell) {
         return;
       }
-      paintTextureCellFromElement(cell);
+      if (state.textureBuilder.isPainting && isTextureDragPaintTool(state.textureBuilder.activeTool)) {
+        paintTextureCellFromElement(cell);
+        return;
+      }
+      updateTexturePreviewForCell(cell);
     });
 
     dom.textureGridContainer.addEventListener('click', function (event) {
@@ -776,7 +1042,13 @@
       if (!cell) {
         return;
       }
-      paintTextureCellFromElement(cell);
+      if (!isTextureDragPaintTool(state.textureBuilder.activeTool)) {
+        paintTextureCellFromElement(cell);
+      }
+    });
+
+    dom.textureGridContainer.addEventListener('mouseleave', function () {
+      clearTexturePreview();
     });
 
     dom.textureSizeSelect.addEventListener('change', function () {
@@ -784,12 +1056,14 @@
       if (TEXTURE_SIZES.indexOf(nextSize) === -1) {
         return;
       }
+      pushTextureUndoState();
       state.textureBuilder.size = nextSize;
-      state.textureBuilder.pixels = createLayerGrid(nextSize, nextSize, null);
+      resetTextureLayers(nextSize, false);
       if (!dom.textureFilenameInput.value.trim()) {
         dom.textureFilenameInput.value = 'texture_' + nextSize + 'x' + nextSize;
       }
       renderTextureGrid();
+      renderTextureLayerList();
       updateTextureStatus('Texture grid reset to ' + nextSize + ' x ' + nextSize + '.');
     });
 
@@ -810,20 +1084,169 @@
 
     dom.textureFillToolBtn.addEventListener('click', function () {
       state.textureBuilder.activeTool = 'fill';
+      clearTexturePreview();
       updateTextureToolButtonState();
     });
 
     dom.textureEraserBtn.addEventListener('click', function () {
-      state.textureBuilder.selectedColor = null;
-      state.textureBuilder.activeTool = 'paint';
-      highlightActiveTexturePaletteButton();
+      state.textureBuilder.activeTool = 'erase';
+      clearTexturePreview();
       updateTextureToolButtonState();
       updateTextureStatus('Eraser selected.');
+    });
+
+    dom.textureHighlighterToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'highlighter';
+      clearTexturePreview();
+      updateTextureToolButtonState();
+    });
+
+    dom.textureEyedropperToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'eyedropper';
+      clearTexturePreview();
+      updateTextureToolButtonState();
+    });
+
+    dom.textureHBarToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'hbar';
+      state.textureBuilder.shapeStart = null;
+      updateTextureToolButtonState();
+    });
+
+    dom.textureVBarToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'vbar';
+      state.textureBuilder.shapeStart = null;
+      updateTextureToolButtonState();
+    });
+
+    dom.textureLineToolBtn.addEventListener('click', function () {
+      state.textureBuilder.activeTool = 'line';
+      state.textureBuilder.shapeStart = null;
+      clearTexturePreview();
+      updateTextureToolButtonState();
+    });
+
+    dom.textureBrushSizeSelect.addEventListener('change', function () {
+      const next = Number(dom.textureBrushSizeSelect.value);
+      state.textureBuilder.brushSize = Number.isInteger(next) ? Math.max(1, Math.min(5, next)) : 1;
+    });
+
+    dom.textureHighlighterOpacityInput.addEventListener('input', function () {
+      const next = Number(dom.textureHighlighterOpacityInput.value);
+      state.textureBuilder.highlighterOpacity = Number.isFinite(next) ? Math.max(0.05, Math.min(1, next)) : 0.35;
+    });
+
+    dom.textureBarLengthInput.addEventListener('change', function () {
+      state.textureBuilder.barLength = clampInteger(dom.textureBarLengthInput.value, 1, 256, 8);
+      dom.textureBarLengthInput.value = String(state.textureBuilder.barLength);
+    });
+
+    dom.textureBarThicknessInput.addEventListener('change', function () {
+      state.textureBuilder.barThickness = clampInteger(dom.textureBarThicknessInput.value, 1, 32, 1);
+      dom.textureBarThicknessInput.value = String(state.textureBuilder.barThickness);
+    });
+
+    dom.textureAddLayerBtn.addEventListener('click', function () {
+      addTextureLayer();
+    });
+
+    dom.textureClearLayerBtn.addEventListener('click', function () {
+      clearActiveTextureLayer();
+    });
+
+    dom.textureSaveToLibraryBtn.addEventListener('click', function () {
+      saveCurrentTextureToLibrary();
+    });
+
+    dom.textureLibraryExportBtn.addEventListener('click', function () {
+      exportCustomTextureLibraryToFile();
+    });
+
+    dom.textureLibraryImportInput.addEventListener('change', function (event) {
+      if (!event.target.files || !event.target.files[0]) {
+        return;
+      }
+      importCustomTextureLibraryFromFile(event.target.files[0]);
+      event.target.value = '';
+    });
+
+    dom.textureLibraryList.addEventListener('click', function (event) {
+      const button = event.target.closest('[data-library-action]');
+      if (!button) {
+        return;
+      }
+      const textureId = button.dataset.textureId;
+      const action = button.dataset.libraryAction;
+      if (action === 'delete') {
+        deleteCustomTextureFromLibrary(textureId);
+        return;
+      }
+      if (action === 'load') {
+        loadCustomTextureIntoBuilder(textureId);
+      }
+    });
+
+    dom.textureUndoBtn.addEventListener('click', function () {
+      undoTextureAction();
+    });
+
+    dom.textureRedoBtn.addEventListener('click', function () {
+      redoTextureAction();
+    });
+
+    dom.textureLayerList.addEventListener('click', onTextureLayerListClick);
+    dom.textureLayerList.addEventListener('change', onTextureLayerListChange);
+
+    document.addEventListener('keydown', function (event) {
+      if (state.activeTab !== 'textureBuilder' && state.activeTab !== 'mapEditor') {
+        return;
+      }
+      if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.isContentEditable)) {
+        return;
+      }
+      const isMetaUndo = event.metaKey || event.ctrlKey;
+      if (!isMetaUndo) {
+        return;
+      }
+      const key = String(event.key || '').toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        if (state.activeTab === 'textureBuilder') {
+          redoTextureAction();
+        } else {
+          redoMapAction();
+        }
+        return;
+      }
+      if (key === 'y') {
+        event.preventDefault();
+        if (state.activeTab === 'textureBuilder') {
+          redoTextureAction();
+        } else {
+          redoMapAction();
+        }
+        return;
+      }
+      if (key === 'z') {
+        event.preventDefault();
+        if (state.activeTab === 'textureBuilder') {
+          undoTextureAction();
+        } else {
+          undoMapAction();
+        }
+      }
     });
 
     dom.textureExportBtn.addEventListener('click', exportTextureToFile);
     dom.textureExportPngBtn.addEventListener('click', exportTexturePngToFile);
     dom.textureExportEngineEntryBtn.addEventListener('click', exportTextureEngineEntryToFile);
+    dom.textureImportInput.addEventListener('change', function (event) {
+      if (!event.target.files || !event.target.files[0]) {
+        return;
+      }
+      importTextureFromFile(event.target.files[0]);
+      event.target.value = '';
+    });
     dom.textureFilenameInput.addEventListener('blur', function () {
       const fallback = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
       const cleaned = sanitizeTextureFilename(dom.textureFilenameInput.value);
@@ -835,11 +1258,207 @@
     dom.textureSizeSelect.value = String(state.textureBuilder.size);
     dom.textureColorPicker.value = state.textureBuilder.selectedColor || '#000000';
     dom.textureFilenameInput.value = 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size;
+    dom.textureBrushSizeSelect.value = String(state.textureBuilder.brushSize);
+    dom.textureHighlighterOpacityInput.value = String(state.textureBuilder.highlighterOpacity);
+    dom.textureBarLengthInput.value = String(state.textureBuilder.barLength);
+    dom.textureBarThicknessInput.value = String(state.textureBuilder.barThickness);
     state.textureBuilder.customColors = loadTextureCustomColorsFromStorage();
+    resetTextureLayers(state.textureBuilder.size);
     renderTexturePalette();
     renderTextureGrid();
+    renderTextureLayerList();
     updateTextureToolButtonState();
+    updateTextureUndoRedoButtons();
     updateTextureStatus('Texture Builder ready.');
+  }
+
+  function createTextureLayer(name, size) {
+    const nextId = 'layer_' + state.textureBuilder.nextLayerId;
+    state.textureBuilder.nextLayerId += 1;
+    return {
+      id: nextId,
+      name: name || ('Layer ' + state.textureBuilder.nextLayerId),
+      visible: true,
+      locked: false,
+      opacity: 1,
+      pixels: createLayerGrid(size, size, null)
+    };
+  }
+
+  function resetTextureLayers(size, shouldResetHistory) {
+    state.textureBuilder.layers = [createTextureLayer('Layer 1', size)];
+    state.textureBuilder.activeLayerId = state.textureBuilder.layers[0].id;
+    state.textureBuilder.shapeStart = null;
+    clearTexturePreview();
+    if (shouldResetHistory !== false) {
+      state.textureBuilder.undoStack = [];
+      state.textureBuilder.redoStack = [];
+      state.textureBuilder.pendingStrokeSnapshot = null;
+      state.textureBuilder.hasPendingStrokeChange = false;
+    }
+    updateTextureUndoRedoButtons();
+  }
+
+  function createTextureHistorySnapshot() {
+    return {
+      size: state.textureBuilder.size,
+      layers: state.textureBuilder.layers.map(function (layer) {
+        return {
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          locked: layer.locked,
+          opacity: layer.opacity,
+          pixels: cloneLayer(layer.pixels)
+        };
+      }),
+      activeLayerId: state.textureBuilder.activeLayerId,
+      nextLayerId: state.textureBuilder.nextLayerId,
+      brushSize: state.textureBuilder.brushSize,
+      highlighterOpacity: state.textureBuilder.highlighterOpacity,
+      barLength: state.textureBuilder.barLength,
+      barThickness: state.textureBuilder.barThickness
+    };
+  }
+
+  function restoreTextureHistorySnapshot(snapshot) {
+    state.textureBuilder.size = snapshot.size;
+    dom.textureSizeSelect.value = String(snapshot.size);
+    state.textureBuilder.layers = snapshot.layers.map(function (layer) {
+      return {
+        id: layer.id,
+        name: layer.name,
+        visible: layer.visible,
+        locked: layer.locked,
+        opacity: layer.opacity,
+        pixels: cloneLayer(layer.pixels)
+      };
+    });
+    state.textureBuilder.activeLayerId = snapshot.activeLayerId;
+    state.textureBuilder.nextLayerId = snapshot.nextLayerId;
+    state.textureBuilder.brushSize = snapshot.brushSize;
+    state.textureBuilder.highlighterOpacity = snapshot.highlighterOpacity;
+    state.textureBuilder.barLength = snapshot.barLength;
+    state.textureBuilder.barThickness = snapshot.barThickness;
+    dom.textureBrushSizeSelect.value = String(state.textureBuilder.brushSize);
+    dom.textureHighlighterOpacityInput.value = String(state.textureBuilder.highlighterOpacity);
+    dom.textureBarLengthInput.value = String(state.textureBuilder.barLength);
+    dom.textureBarThicknessInput.value = String(state.textureBuilder.barThickness);
+    state.textureBuilder.shapeStart = null;
+    clearTexturePreview();
+    renderTextureLayerList();
+    renderTextureGrid();
+  }
+
+  function snapshotsEqualForTexture(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function pushTextureUndoState() {
+    const snapshot = createTextureHistorySnapshot();
+    const undoStack = state.textureBuilder.undoStack;
+    const last = undoStack.length ? undoStack[undoStack.length - 1] : null;
+    if (!last || !snapshotsEqualForTexture(last, snapshot)) {
+      undoStack.push(snapshot);
+      if (undoStack.length > TEXTURE_HISTORY_LIMIT) {
+        undoStack.shift();
+      }
+    }
+    state.textureBuilder.redoStack = [];
+    updateTextureUndoRedoButtons();
+  }
+
+  function undoTextureAction() {
+    if (!state.textureBuilder.undoStack.length) {
+      return;
+    }
+    const current = createTextureHistorySnapshot();
+    const previous = state.textureBuilder.undoStack.pop();
+    state.textureBuilder.redoStack.push(current);
+    if (state.textureBuilder.redoStack.length > TEXTURE_HISTORY_LIMIT) {
+      state.textureBuilder.redoStack.shift();
+    }
+    restoreTextureHistorySnapshot(previous);
+    updateTextureUndoRedoButtons();
+    updateTextureStatus('Texture undo applied.');
+  }
+
+  function redoTextureAction() {
+    if (!state.textureBuilder.redoStack.length) {
+      return;
+    }
+    const current = createTextureHistorySnapshot();
+    const next = state.textureBuilder.redoStack.pop();
+    state.textureBuilder.undoStack.push(current);
+    if (state.textureBuilder.undoStack.length > TEXTURE_HISTORY_LIMIT) {
+      state.textureBuilder.undoStack.shift();
+    }
+    restoreTextureHistorySnapshot(next);
+    updateTextureUndoRedoButtons();
+    updateTextureStatus('Texture redo applied.');
+  }
+
+  function updateTextureUndoRedoButtons() {
+    if (!dom.textureUndoBtn || !dom.textureRedoBtn) {
+      return;
+    }
+    dom.textureUndoBtn.disabled = state.textureBuilder.undoStack.length === 0;
+    dom.textureRedoBtn.disabled = state.textureBuilder.redoStack.length === 0;
+  }
+
+  function beginTextureStrokeHistoryIfNeeded() {
+    if (state.textureBuilder.pendingStrokeSnapshot) {
+      return;
+    }
+    state.textureBuilder.pendingStrokeSnapshot = createTextureHistorySnapshot();
+    state.textureBuilder.hasPendingStrokeChange = false;
+  }
+
+  function markTextureStrokeChanged() {
+    state.textureBuilder.hasPendingStrokeChange = true;
+  }
+
+  function finalizeTextureStrokeHistory() {
+    if (!state.textureBuilder.pendingStrokeSnapshot) {
+      return;
+    }
+    if (state.textureBuilder.hasPendingStrokeChange) {
+      const prior = state.textureBuilder.pendingStrokeSnapshot;
+      const current = createTextureHistorySnapshot();
+      if (!snapshotsEqualForTexture(prior, current)) {
+        state.textureBuilder.undoStack.push(prior);
+        if (state.textureBuilder.undoStack.length > TEXTURE_HISTORY_LIMIT) {
+          state.textureBuilder.undoStack.shift();
+        }
+        state.textureBuilder.redoStack = [];
+      }
+      updateTextureUndoRedoButtons();
+    }
+    state.textureBuilder.pendingStrokeSnapshot = null;
+    state.textureBuilder.hasPendingStrokeChange = false;
+  }
+
+  function getActiveTextureLayer() {
+    return state.textureBuilder.layers.find(function (layer) {
+      return layer.id === state.textureBuilder.activeLayerId;
+    }) || null;
+  }
+
+  function canEditActiveTextureLayer() {
+    const layer = getActiveTextureLayer();
+    if (!layer) {
+      updateTextureStatus('No active texture layer selected.', true);
+      return false;
+    }
+    if (!layer.visible) {
+      updateTextureStatus('Active layer is hidden. Unhide to draw.', true);
+      return false;
+    }
+    if (layer.locked) {
+      updateTextureStatus('Active layer is locked. Unlock to draw.', true);
+      return false;
+    }
+    return true;
   }
 
   function renderTexturePalette() {
@@ -971,23 +1590,25 @@
         cell.className = 'texture-cell';
         cell.dataset.row = String(row);
         cell.dataset.col = String(col);
-        applyTextureCellVisual(cell, state.textureBuilder.pixels[row][col]);
+        applyTextureCellVisual(cell, getCompositeTexturePixel(row, col));
         dom.textureGridContainer.appendChild(cell);
       }
     }
 
     dom.textureSizeLabel.textContent = String(size);
     dom.textureSizeLabel2.textContent = String(size);
+    applyTexturePreviewOverlay();
   }
 
   function applyTextureCellVisual(cell, color) {
-    if (color === null) {
+    if (!color) {
       cell.classList.add('texture-empty');
       cell.style.backgroundColor = '';
       return;
     }
     cell.classList.remove('texture-empty');
-    cell.style.backgroundColor = color;
+    const alpha = Number.isFinite(color.alpha) ? color.alpha : 1;
+    cell.style.backgroundColor = rgbaFromHex(color.color, alpha);
   }
 
   function getTextureCellFromEventTarget(target) {
@@ -1004,10 +1625,62 @@
       return;
     }
 
+    if (state.textureBuilder.activeTool === 'eyedropper') {
+      // Eyedropper samples the composited visible result across all visible layers,
+      // not only the active layer, so it matches what users currently see.
+      const sampled = sampleCompositeTextureColor(row, col);
+      if (!sampled) {
+        updateTextureStatus('Eyedropper found transparent pixel.');
+        return;
+      }
+      state.textureBuilder.selectedColor = sampled;
+      const added = rememberTextureCustomColor(sampled);
+      if (added) {
+        renderTexturePalette();
+      }
+      highlightActiveTexturePaletteButton();
+      updateTextureStatus('Eyedropper selected color: ' + sampled);
+      return;
+    }
+
+    if (!canEditActiveTextureLayer()) {
+      return;
+    }
+
+    const activeLayer = getActiveTextureLayer();
+    if (!activeLayer) {
+      return;
+    }
+
     if (state.textureBuilder.activeTool === 'fill') {
-      applyTextureFillAt(row, col, state.textureBuilder.selectedColor);
+      pushTextureUndoState();
+      applyTextureFillAt(activeLayer, row, col, state.textureBuilder.selectedColor);
       renderTextureGrid();
       updateTextureStatus('Texture fill applied from (' + col + ', ' + row + ').');
+      return;
+    }
+
+    if (state.textureBuilder.activeTool === 'hbar' || state.textureBuilder.activeTool === 'vbar') {
+      pushTextureUndoState();
+      const barPoints = getBarToolPoints(row, col, state.textureBuilder.activeTool);
+      applyTextureStrokeToLayer(activeLayer, barPoints, getTextureToolPixelValue(), false);
+      renderTextureGrid();
+      return;
+    }
+
+    if (state.textureBuilder.activeTool === 'line') {
+      if (!state.textureBuilder.shapeStart) {
+        state.textureBuilder.shapeStart = { row: row, col: col };
+        updateTextureStatus('Line start set. Click end point to commit line.');
+        return;
+      }
+      pushTextureUndoState();
+      const linePoints = getLineToolPoints(state.textureBuilder.shapeStart.row, state.textureBuilder.shapeStart.col, row, col, state.textureBuilder.barThickness);
+      applyTextureStrokeToLayer(activeLayer, linePoints, getTextureToolPixelValue(), false);
+      state.textureBuilder.shapeStart = null;
+      clearTexturePreview();
+      renderTextureGrid();
+      updateTextureStatus('Line committed.');
       return;
     }
 
@@ -1017,15 +1690,51 @@
     }
     state.textureBuilder.lastPaintedCellKey = currentKey;
 
-    state.textureBuilder.pixels[row][col] = state.textureBuilder.selectedColor;
-    applyTextureCellVisual(cell, state.textureBuilder.pixels[row][col]);
+    const brushPoints = getBrushPoints(row, col, state.textureBuilder.brushSize);
+    applyTextureStrokeToLayer(activeLayer, brushPoints, getTextureToolPixelValue(), true);
+    markTextureStrokeChanged();
+    renderTextureGrid();
   }
 
-  function applyTextureFillAt(startRow, startCol, color) {
-    const pixels = state.textureBuilder.pixels;
+  function getTextureToolPixelValue() {
+    if (state.textureBuilder.activeTool === 'erase') {
+      return null;
+    }
+    if (state.textureBuilder.activeTool === 'highlighter') {
+      return {
+        color: state.textureBuilder.selectedColor,
+        alpha: state.textureBuilder.highlighterOpacity
+      };
+    }
+    return {
+      color: state.textureBuilder.selectedColor,
+      alpha: 1
+    };
+  }
+
+  function normalizeTexturePixel(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return isValidTextureHexColor(value) ? { color: value, alpha: 1 } : null;
+    }
+    if (typeof value === 'object' && isValidTextureHexColor(value.color)) {
+      const alpha = Number(value.alpha);
+      return {
+        color: value.color.toLowerCase(),
+        alpha: Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1
+      };
+    }
+    return null;
+  }
+
+  function applyTextureFillAt(layer, startRow, startCol, color) {
+    const pixels = layer.pixels;
     const size = state.textureBuilder.size;
-    const targetColor = pixels[startRow][startCol];
-    if (targetColor === color) {
+    const targetColor = normalizeTexturePixel(pixels[startRow][startCol]);
+    const replacementColor = normalizeTexturePixel(color);
+    if (texturePixelsEqual(targetColor, replacementColor)) {
       return;
     }
 
@@ -1043,11 +1752,11 @@
       }
       visited.add(key);
 
-      if (row < 0 || row >= size || col < 0 || col >= size || pixels[row][col] !== targetColor) {
+      if (row < 0 || row >= size || col < 0 || col >= size || !texturePixelsEqual(normalizeTexturePixel(pixels[row][col]), targetColor)) {
         continue;
       }
 
-      pixels[row][col] = color;
+      pixels[row][col] = replacementColor;
       queue.push([row - 1, col]);
       queue.push([row + 1, col]);
       queue.push([row, col - 1]);
@@ -1058,16 +1767,35 @@
   function updateTextureToolButtonState() {
     dom.texturePaintToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'paint');
     dom.textureFillToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'fill');
-    dom.textureActiveToolLabel.textContent = state.textureBuilder.activeTool === 'fill' ? 'Fill' : 'Paint';
+    dom.textureEraserBtn.classList.toggle('active', state.textureBuilder.activeTool === 'erase');
+    dom.textureHighlighterToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'highlighter');
+    dom.textureEyedropperToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'eyedropper');
+    dom.textureHBarToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'hbar');
+    dom.textureVBarToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'vbar');
+    dom.textureLineToolBtn.classList.toggle('active', state.textureBuilder.activeTool === 'line');
+    dom.textureActiveToolLabel.textContent = state.textureBuilder.activeTool;
   }
 
   function exportTextureToFile() {
     const payload = {
-      type: 'texture',
+      type: 'texture_project',
+      version: 2,
       size: state.textureBuilder.size,
-      pixels: cloneLayer(state.textureBuilder.pixels)
+      layers: state.textureBuilder.layers.map(function (layer) {
+        return {
+          id: layer.id,
+          name: layer.name,
+          visible: layer.visible,
+          locked: layer.locked,
+          opacity: layer.opacity,
+          pixels: cloneLayer(layer.pixels)
+        };
+      }),
+      activeLayerId: state.textureBuilder.activeLayerId,
+      pixels: getFlattenedTextureHexGrid()
     };
-    downloadJsonFile(payload, 'texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size + '.json');
+    const baseFilename = getTextureExportBaseFilename();
+    downloadJsonFile(payload, baseFilename + '.json');
     updateTextureStatus('Texture JSON exported.');
   }
 
@@ -1101,7 +1829,6 @@
 
   function exportTexturePngToFile() {
     const size = state.textureBuilder.size;
-    const pixels = state.textureBuilder.pixels;
     const baseFilename = getTextureExportBaseFilename();
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -1116,11 +1843,11 @@
     ctx.clearRect(0, 0, size, size);
     for (let row = 0; row < size; row += 1) {
       for (let col = 0; col < size; col += 1) {
-        const color = pixels[row][col];
+        const color = getCompositeTexturePixel(row, col);
         if (color === null) {
           continue;
         }
-        ctx.fillStyle = color;
+        ctx.fillStyle = rgbaFromHex(color.color, color.alpha);
         ctx.fillRect(col, row, 1, 1);
       }
     }
@@ -1148,6 +1875,847 @@
   function updateTextureStatus(text, isError) {
     dom.textureMessage.textContent = text;
     dom.textureMessage.style.color = isError ? '#b42318' : '#42556f';
+  }
+
+  function clampInteger(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) {
+      return fallback;
+    }
+    return Math.max(min, Math.min(max, parsed));
+  }
+
+  function texturePixelsEqual(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.color === b.color && Math.abs(a.alpha - b.alpha) < 0.0001;
+  }
+
+  function rgbaFromHex(hex, alpha) {
+    const value = String(hex || '#000000').replace('#', '');
+    const r = parseInt(value.slice(0, 2), 16);
+    const g = parseInt(value.slice(2, 4), 16);
+    const b = parseInt(value.slice(4, 6), 16);
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+  }
+
+  function blendTexturePixels(base, top) {
+    if (!top) {
+      return base;
+    }
+    if (!base) {
+      return { color: top.color, alpha: top.alpha };
+    }
+    const alpha = top.alpha + base.alpha * (1 - top.alpha);
+    if (alpha <= 0) {
+      return null;
+    }
+    function rgb(color) {
+      return {
+        r: parseInt(color.slice(1, 3), 16),
+        g: parseInt(color.slice(3, 5), 16),
+        b: parseInt(color.slice(5, 7), 16)
+      };
+    }
+    const b1 = rgb(base.color);
+    const t1 = rgb(top.color);
+    const r = Math.round((t1.r * top.alpha + b1.r * base.alpha * (1 - top.alpha)) / alpha);
+    const g = Math.round((t1.g * top.alpha + b1.g * base.alpha * (1 - top.alpha)) / alpha);
+    const b = Math.round((t1.b * top.alpha + b1.b * base.alpha * (1 - top.alpha)) / alpha);
+    const hex = '#' + [r, g, b].map(function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+    return { color: hex, alpha: alpha };
+  }
+
+  function getCompositeTexturePixel(row, col) {
+    let composite = null;
+    state.textureBuilder.layers.forEach(function (layer) {
+      if (!layer.visible) {
+        return;
+      }
+      const pixel = normalizeTexturePixel(layer.pixels[row][col]);
+      if (!pixel) {
+        return;
+      }
+      const withLayerOpacity = {
+        color: pixel.color,
+        alpha: Math.max(0, Math.min(1, pixel.alpha * layer.opacity))
+      };
+      composite = blendTexturePixels(composite, withLayerOpacity);
+    });
+    return composite;
+  }
+
+  function sampleCompositeTextureColor(row, col) {
+    const pixel = getCompositeTexturePixel(row, col);
+    return pixel ? pixel.color : null;
+  }
+
+  function getFlattenedTextureHexGrid() {
+    const size = state.textureBuilder.size;
+    const out = createLayerGrid(size, size, null);
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        const composite = getCompositeTexturePixel(row, col);
+        out[row][col] = composite ? composite.color : null;
+      }
+    }
+    return out;
+  }
+
+  function getBrushPoints(centerRow, centerCol, brushSize) {
+    const points = [];
+    const startOffset = Math.floor(brushSize / 2);
+    for (let row = centerRow - startOffset; row < centerRow - startOffset + brushSize; row += 1) {
+      for (let col = centerCol - startOffset; col < centerCol - startOffset + brushSize; col += 1) {
+        if (row < 0 || row >= state.textureBuilder.size || col < 0 || col >= state.textureBuilder.size) {
+          continue;
+        }
+        points.push([row, col]);
+      }
+    }
+    return points;
+  }
+
+  function applyTextureStrokeToLayer(layer, points, pixelValue, isBrush) {
+    const normalized = normalizeTexturePixel(pixelValue);
+    points.forEach(function (point) {
+      const row = point[0];
+      const col = point[1];
+      if (pixelValue === null) {
+        layer.pixels[row][col] = null;
+        return;
+      }
+      if (state.textureBuilder.activeTool === 'highlighter' && normalized) {
+        const existing = normalizeTexturePixel(layer.pixels[row][col]);
+        if (existing && existing.color === normalized.color) {
+          layer.pixels[row][col] = {
+            color: normalized.color,
+            alpha: Math.max(existing.alpha, normalized.alpha)
+          };
+          return;
+        }
+      }
+      layer.pixels[row][col] = normalized;
+    });
+    if (!isBrush) {
+      state.textureBuilder.lastPaintedCellKey = '';
+    }
+  }
+
+  function getBarToolPoints(row, col, tool) {
+    const length = clampInteger(state.textureBuilder.barLength, 1, 256, 8);
+    const thickness = clampInteger(state.textureBuilder.barThickness, 1, 32, 1);
+    const points = [];
+    for (let t = 0; t < thickness; t += 1) {
+      for (let i = 0; i < length; i += 1) {
+        const nextRow = tool === 'hbar' ? row + t : row + i;
+        const nextCol = tool === 'hbar' ? col + i : col + t;
+        if (nextRow < 0 || nextRow >= state.textureBuilder.size || nextCol < 0 || nextCol >= state.textureBuilder.size) {
+          continue;
+        }
+        points.push([nextRow, nextCol]);
+      }
+    }
+    return points;
+  }
+
+  function getLineToolPoints(startRow, startCol, endRow, endCol, thickness) {
+    const points = [];
+    const dr = Math.abs(endRow - startRow);
+    const dc = Math.abs(endCol - startCol);
+    const stepR = startRow < endRow ? 1 : -1;
+    const stepC = startCol < endCol ? 1 : -1;
+    let err = dc - dr;
+    let row = startRow;
+    let col = startCol;
+    const brushSize = Math.max(1, thickness);
+    while (true) {
+      getBrushPoints(row, col, brushSize).forEach(function (point) {
+        points.push(point);
+      });
+      if (row === endRow && col === endCol) {
+        break;
+      }
+      const e2 = err * 2;
+      if (e2 > -dr) {
+        err -= dr;
+        col += stepC;
+      }
+      if (e2 < dc) {
+        err += dc;
+        row += stepR;
+      }
+    }
+    return points;
+  }
+
+  function isTextureDragPaintTool(tool) {
+    return tool === 'paint' || tool === 'erase' || tool === 'highlighter';
+  }
+
+  function handleTexturePointerDown(cell) {
+    state.textureBuilder.lastPaintedCellKey = '';
+    if (isTextureDragPaintTool(state.textureBuilder.activeTool)) {
+      if (canEditActiveTextureLayer()) {
+        beginTextureStrokeHistoryIfNeeded();
+      }
+      state.textureBuilder.isPainting = true;
+    }
+    paintTextureCellFromElement(cell);
+  }
+
+  function clearTexturePreview() {
+    state.textureBuilder.previewCells = [];
+    applyTexturePreviewOverlay();
+  }
+
+  function applyTexturePreviewOverlay() {
+    const previewMap = {};
+    state.textureBuilder.previewCells.forEach(function (entry) {
+      previewMap[entry[0] + ',' + entry[1]] = true;
+    });
+    dom.textureGridContainer.querySelectorAll('.texture-cell').forEach(function (cell) {
+      const key = cell.dataset.row + ',' + cell.dataset.col;
+      cell.classList.toggle('texture-preview', Boolean(previewMap[key]));
+    });
+  }
+
+  function updateTexturePreviewForCell(cell) {
+    const row = Number(cell.dataset.row);
+    const col = Number(cell.dataset.col);
+    if (!Number.isInteger(row) || !Number.isInteger(col)) {
+      return;
+    }
+
+    if (state.textureBuilder.activeTool === 'line' && state.textureBuilder.shapeStart) {
+      state.textureBuilder.previewCells = getLineToolPoints(
+        state.textureBuilder.shapeStart.row,
+        state.textureBuilder.shapeStart.col,
+        row,
+        col,
+        state.textureBuilder.barThickness
+      );
+      applyTexturePreviewOverlay();
+      return;
+    }
+
+    if (state.textureBuilder.activeTool === 'hbar' || state.textureBuilder.activeTool === 'vbar') {
+      state.textureBuilder.previewCells = getBarToolPoints(row, col, state.textureBuilder.activeTool);
+      applyTexturePreviewOverlay();
+      return;
+    }
+
+    if (isTextureDragPaintTool(state.textureBuilder.activeTool)) {
+      state.textureBuilder.previewCells = getBrushPoints(row, col, state.textureBuilder.brushSize);
+      applyTexturePreviewOverlay();
+      return;
+    }
+
+    clearTexturePreview();
+  }
+
+  function renderTextureLayerList() {
+    dom.textureLayerList.innerHTML = '';
+    state.textureBuilder.layers.forEach(function (layer, index) {
+      const row = document.createElement('div');
+      row.className = 'texture-layer-row';
+      row.classList.toggle('active', layer.id === state.textureBuilder.activeLayerId);
+      row.dataset.layerId = layer.id;
+      row.innerHTML = '<div class=\"texture-layer-top\">' +
+        '<button type=\"button\" class=\"secondary-btn\" data-layer-action=\"activate\" data-layer-id=\"' + layer.id + '\">Active</button>' +
+        '<input class=\"text-input\" data-layer-field=\"name\" data-layer-id=\"' + layer.id + '\" value=\"' + escapeHtml(layer.name) + '\" />' +
+        '</div>' +
+        '<div class=\"texture-layer-controls\">' +
+        '<label><input type=\"checkbox\" data-layer-field=\"visible\" data-layer-id=\"' + layer.id + '\" ' + (layer.visible ? 'checked' : '') + ' /> Visible</label>' +
+        '<label><input type=\"checkbox\" data-layer-field=\"locked\" data-layer-id=\"' + layer.id + '\" ' + (layer.locked ? 'checked' : '') + ' /> Locked</label>' +
+        '<label>Opacity <input type=\"range\" min=\"0\" max=\"1\" step=\"0.05\" data-layer-field=\"opacity\" data-layer-id=\"' + layer.id + '\" value=\"' + layer.opacity + '\" /></label>' +
+        '<div>' +
+        '<button type=\"button\" class=\"secondary-btn\" data-layer-action=\"up\" data-layer-id=\"' + layer.id + '\" ' + (index === state.textureBuilder.layers.length - 1 ? 'disabled' : '') + '>Up</button> ' +
+        '<button type=\"button\" class=\"secondary-btn\" data-layer-action=\"down\" data-layer-id=\"' + layer.id + '\" ' + (index === 0 ? 'disabled' : '') + '>Down</button> ' +
+        '<button type=\"button\" class=\"danger-btn\" data-layer-action=\"delete\" data-layer-id=\"' + layer.id + '\" ' + (state.textureBuilder.layers.length <= 1 ? 'disabled' : '') + '>Delete</button>' +
+        '</div>' +
+        '</div>';
+      dom.textureLayerList.appendChild(row);
+    });
+  }
+
+  function addTextureLayer() {
+    pushTextureUndoState();
+    const layer = createTextureLayer('Layer ' + (state.textureBuilder.layers.length + 1), state.textureBuilder.size);
+    state.textureBuilder.layers.push(layer);
+    state.textureBuilder.activeLayerId = layer.id;
+    renderTextureLayerList();
+    renderTextureGrid();
+    updateTextureStatus('Texture layer added.');
+  }
+
+  function clearActiveTextureLayer() {
+    if (!canEditActiveTextureLayer()) {
+      return;
+    }
+    const layer = getActiveTextureLayer();
+    if (!layer) {
+      return;
+    }
+    if (!window.confirm('Clear all pixels on active layer?')) {
+      return;
+    }
+    pushTextureUndoState();
+    layer.pixels = createLayerGrid(state.textureBuilder.size, state.textureBuilder.size, null);
+    renderTextureGrid();
+    updateTextureStatus('Active layer cleared.');
+  }
+
+  function onTextureLayerListClick(event) {
+    const button = event.target.closest('[data-layer-action]');
+    if (!button) {
+      return;
+    }
+    const layerId = button.dataset.layerId;
+    const action = button.dataset.layerAction;
+    const index = state.textureBuilder.layers.findIndex(function (layer) {
+      return layer.id === layerId;
+    });
+    if (index === -1) {
+      return;
+    }
+
+    if (action === 'activate') {
+      state.textureBuilder.activeLayerId = layerId;
+    } else if (action === 'up' && index < state.textureBuilder.layers.length - 1) {
+      pushTextureUndoState();
+      const temp = state.textureBuilder.layers[index + 1];
+      state.textureBuilder.layers[index + 1] = state.textureBuilder.layers[index];
+      state.textureBuilder.layers[index] = temp;
+    } else if (action === 'down' && index > 0) {
+      pushTextureUndoState();
+      const swap = state.textureBuilder.layers[index - 1];
+      state.textureBuilder.layers[index - 1] = state.textureBuilder.layers[index];
+      state.textureBuilder.layers[index] = swap;
+    } else if (action === 'delete' && state.textureBuilder.layers.length > 1) {
+      pushTextureUndoState();
+      state.textureBuilder.layers.splice(index, 1);
+      if (state.textureBuilder.activeLayerId === layerId) {
+        state.textureBuilder.activeLayerId = state.textureBuilder.layers[Math.max(0, index - 1)].id;
+      }
+    }
+
+    renderTextureLayerList();
+    renderTextureGrid();
+  }
+
+  function onTextureLayerListChange(event) {
+    const input = event.target;
+    const layerId = input.dataset.layerId;
+    const field = input.dataset.layerField;
+    if (!layerId || !field) {
+      return;
+    }
+    const layer = state.textureBuilder.layers.find(function (entry) {
+      return entry.id === layerId;
+    });
+    if (!layer) {
+      return;
+    }
+
+    if (field === 'name') {
+      pushTextureUndoState();
+      layer.name = String(input.value || '').trim() || 'Layer';
+    } else if (field === 'visible') {
+      pushTextureUndoState();
+      layer.visible = Boolean(input.checked);
+    } else if (field === 'locked') {
+      pushTextureUndoState();
+      layer.locked = Boolean(input.checked);
+    } else if (field === 'opacity') {
+      pushTextureUndoState();
+      const nextOpacity = Number(input.value);
+      layer.opacity = Number.isFinite(nextOpacity) ? Math.max(0, Math.min(1, nextOpacity)) : 1;
+    }
+
+    renderTextureLayerList();
+    renderTextureGrid();
+  }
+
+  function importTextureFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        pushTextureUndoState();
+        applyImportedTexturePayload(parsed);
+        updateTextureStatus('Texture imported successfully.');
+      } catch (error) {
+        updateTextureStatus('Texture import failed: ' + error.message, true);
+      }
+    };
+    reader.onerror = function () {
+      updateTextureStatus('Texture import failed: unable to read file.', true);
+    };
+    reader.readAsText(file);
+  }
+
+  function applyImportedTexturePayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Texture JSON must be an object.');
+    }
+    const size = Number(payload.size);
+    if (TEXTURE_SIZES.indexOf(size) === -1) {
+      throw new Error('Texture size must be one of: ' + TEXTURE_SIZES.join(', '));
+    }
+
+    state.textureBuilder.size = size;
+    dom.textureSizeSelect.value = String(size);
+
+    if (Array.isArray(payload.layers)) {
+      const nextLayers = payload.layers.map(function (layer, index) {
+        const name = String(layer && layer.name ? layer.name : ('Layer ' + (index + 1)));
+        const pixels = Array.isArray(layer && layer.pixels) ? layer.pixels : [];
+        if (pixels.length !== size) {
+          throw new Error('Imported layer pixel rows must match selected size.');
+        }
+        const normalizedPixels = pixels.map(function (row) {
+          if (!Array.isArray(row) || row.length !== size) {
+            throw new Error('Imported layer pixel columns must match selected size.');
+          }
+          return row.map(function (entry) {
+            return normalizeTexturePixel(entry);
+          });
+        });
+        const created = createTextureLayer(name, size);
+        created.pixels = normalizedPixels;
+        created.visible = layer.visible !== false;
+        created.locked = Boolean(layer.locked);
+        created.opacity = Number.isFinite(Number(layer.opacity)) ? Math.max(0, Math.min(1, Number(layer.opacity))) : 1;
+        return created;
+      });
+      if (!nextLayers.length) {
+        throw new Error('Imported texture must include at least one layer.');
+      }
+      state.textureBuilder.layers = nextLayers;
+      state.textureBuilder.activeLayerId = nextLayers[0].id;
+    } else if (Array.isArray(payload.pixels)) {
+      const normalizedPixels = payload.pixels.map(function (row) {
+        if (!Array.isArray(row) || row.length !== size) {
+          throw new Error('Imported legacy pixels must match selected size.');
+        }
+        return row.map(function (entry) {
+          return normalizeTexturePixel(entry);
+        });
+      });
+      if (normalizedPixels.length !== size) {
+        throw new Error('Imported legacy pixels must match selected size.');
+      }
+      resetTextureLayers(size, false);
+      state.textureBuilder.layers[0].pixels = normalizedPixels;
+    } else {
+      throw new Error('Unsupported texture JSON format.');
+    }
+
+    renderTextureLayerList();
+    renderTextureGrid();
+  }
+
+  function generateCustomTextureId(name) {
+    const base = normalizeCustomTextureId(name || dom.textureFilenameInput.value || 'texture');
+    if (!state.customTextureLibrary.textures.some(function (entry) { return entry.id === base; })) {
+      return base;
+    }
+    let index = 2;
+    let candidate = base + '_' + index;
+    while (state.customTextureLibrary.textures.some(function (entry) { return entry.id === candidate; })) {
+      index += 1;
+      candidate = base + '_' + index;
+    }
+    return candidate;
+  }
+
+  function saveCurrentTextureToLibrary() {
+    const baseName = dom.textureFilenameInput.value.trim() || ('texture_' + state.textureBuilder.size + 'x' + state.textureBuilder.size);
+    const baseId = normalizeCustomTextureId(baseName);
+    const existing = state.customTextureLibrary.textures.find(function (entry) {
+      return entry.id === baseId;
+    });
+    let id = baseId;
+    let createdAt = new Date().toISOString();
+
+    if (existing) {
+      const shouldReplace = window.confirm('A custom texture with ID "' + baseId + '" exists. Replace it?');
+      if (!shouldReplace) {
+        id = generateCustomTextureId(baseName);
+      } else {
+        createdAt = existing.createdAt;
+      }
+    }
+
+    const now = new Date().toISOString();
+    const flattened = getFlattenedTexturePixelGrid();
+    const textureEntry = {
+      id: id,
+      name: baseName,
+      size: state.textureBuilder.size,
+      pixels: flattened,
+      createdAt: createdAt,
+      updatedAt: now,
+      previewColor: buildCustomTexturePreviewData(flattened)
+    };
+
+    const withoutId = state.customTextureLibrary.textures.filter(function (entry) {
+      return entry.id !== id;
+    });
+    withoutId.unshift(textureEntry);
+    state.customTextureLibrary.textures = withoutId;
+    saveCustomTextureLibraryToStorage(state.customTextureLibrary);
+    syncCustomTextureDefinitionsFromLibrary();
+    renderCustomTextureLibraryList();
+    renderPalette();
+    renderLegend();
+    updateTextureStatus('Saved custom texture to library: ' + id);
+  }
+
+  function getFlattenedTexturePixelGrid() {
+    const size = state.textureBuilder.size;
+    const out = createLayerGrid(size, size, null);
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        out[row][col] = normalizeTexturePixel(getCompositeTexturePixel(row, col));
+      }
+    }
+    return out;
+  }
+
+  function renderCustomTextureLibraryList() {
+    dom.textureLibraryList.innerHTML = '';
+    if (!state.customTextureLibrary.textures.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No custom textures saved yet.';
+      dom.textureLibraryList.appendChild(empty);
+      return;
+    }
+
+    state.customTextureLibrary.textures.forEach(function (texture) {
+      const row = document.createElement('div');
+      row.className = 'item-list-entry';
+      row.innerHTML = '<strong>' + escapeHtml(texture.name) + '</strong>' +
+        '<small>' + escapeHtml(texture.id) + ' • ' + texture.size + 'x' + texture.size + '</small>' +
+        '<small><span style=\"display:inline-block;width:12px;height:12px;border:1px solid #94a3b8;vertical-align:middle;background:' + escapeHtml(texture.previewColor || '#9ca3af') + ';\"></span> Preview</small>' +
+        '<div class=\"item-editor-actions\">' +
+        '<button type=\"button\" class=\"secondary-btn\" data-library-action=\"load\" data-texture-id=\"' + escapeHtml(texture.id) + '\">Load into Editor</button>' +
+        '<button type=\"button\" class=\"danger-btn\" data-library-action=\"delete\" data-texture-id=\"' + escapeHtml(texture.id) + '\">Delete</button>' +
+        '</div>';
+      dom.textureLibraryList.appendChild(row);
+    });
+  }
+
+  function deleteCustomTextureFromLibrary(textureId) {
+    const target = state.customTextureLibrary.textures.find(function (entry) {
+      return entry.id === textureId;
+    });
+    if (!target) {
+      return;
+    }
+    if (!window.confirm('Delete custom texture "' + target.name + '"?')) {
+      return;
+    }
+    state.customTextureLibrary.textures = state.customTextureLibrary.textures.filter(function (entry) {
+      return entry.id !== textureId;
+    });
+    saveCustomTextureLibraryToStorage(state.customTextureLibrary);
+    syncCustomTextureDefinitionsFromLibrary();
+    renderCustomTextureLibraryList();
+    renderPalette();
+    renderLegend();
+    updateTextureStatus('Deleted custom texture: ' + textureId);
+  }
+
+  function loadCustomTextureIntoBuilder(textureId) {
+    const texture = state.customTextureLibrary.textures.find(function (entry) {
+      return entry.id === textureId;
+    });
+    if (!texture) {
+      updateTextureStatus('Custom texture not found in library.', true);
+      return;
+    }
+    state.textureBuilder.size = texture.size;
+    dom.textureSizeSelect.value = String(texture.size);
+    resetTextureLayers(texture.size, false);
+    state.textureBuilder.layers[0].pixels = texture.pixels.map(function (row) {
+      return row.map(function (pixel) {
+        return normalizeTexturePixel(pixel);
+      });
+    });
+    dom.textureFilenameInput.value = sanitizeTextureFilename(texture.name) || texture.id;
+    renderTextureLayerList();
+    renderTextureGrid();
+    updateTextureStatus('Loaded custom texture into editor: ' + texture.id);
+  }
+
+  function exportCustomTextureLibraryToFile() {
+    const payload = {
+      version: 1,
+      textures: state.customTextureLibrary.textures
+    };
+    downloadJsonFile(payload, 'custom_texture_library.json');
+    updateTextureStatus('Custom texture library exported.');
+  }
+
+  function importCustomTextureLibraryFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (parsed && parsed.version !== undefined && parsed.version !== 1) {
+          throw new Error('Unsupported custom texture library version.');
+        }
+        const incoming = normalizeCustomTextureLibraryPayload(parsed);
+        const existingIds = new Set(state.customTextureLibrary.textures.map(function (entry) {
+          return entry.id;
+        }));
+        const merged = state.customTextureLibrary.textures.slice();
+        incoming.textures.forEach(function (entry) {
+          let next = entry;
+          if (existingIds.has(next.id)) {
+            const renamedId = generateCustomTextureId(next.id);
+            next = {
+              id: renamedId,
+              name: next.name + ' (Imported)',
+              size: next.size,
+              pixels: next.pixels,
+              createdAt: next.createdAt,
+              updatedAt: new Date().toISOString(),
+              previewColor: next.previewColor
+            };
+          }
+          existingIds.add(next.id);
+          merged.unshift(next);
+        });
+        state.customTextureLibrary.textures = merged;
+        saveCustomTextureLibraryToStorage(state.customTextureLibrary);
+        syncCustomTextureDefinitionsFromLibrary();
+        renderCustomTextureLibraryList();
+        renderPalette();
+        renderLegend();
+        updateTextureStatus('Custom texture library imported.');
+      } catch (error) {
+        updateTextureStatus('Custom texture library import failed: ' + error.message, true);
+      }
+    };
+    reader.onerror = function () {
+      updateTextureStatus('Custom texture library import failed: unable to read file.', true);
+    };
+    reader.readAsText(file);
+  }
+
+  function createMapHistorySnapshot() {
+    return {
+      width: state.width,
+      height: state.height,
+      mapType: state.mapType,
+      mapId: state.mapId,
+      mapName: state.mapName,
+      tileLayer: cloneLayer(state.tileLayer),
+      objectLayer: cloneLayer(state.objectLayer),
+      activeLayer: state.activeLayer,
+      selectedByLayer: {
+        tile: state.selectedByLayer.tile,
+        object: state.selectedByLayer.object
+      },
+      activeTool: state.activeTool,
+      mapBrushSize: state.mapBrushSize,
+      mapBarLength: state.mapBarLength,
+      mapBarThickness: state.mapBarThickness
+    };
+  }
+
+  function restoreMapHistorySnapshot(snapshot) {
+    state.width = snapshot.width;
+    state.height = snapshot.height;
+    state.mapType = snapshot.mapType;
+    state.mapId = snapshot.mapId;
+    state.mapName = snapshot.mapName;
+    state.tileLayer = cloneLayer(snapshot.tileLayer);
+    state.objectLayer = cloneLayer(snapshot.objectLayer);
+    state.activeLayer = snapshot.activeLayer;
+    state.selectedByLayer.tile = snapshot.selectedByLayer.tile;
+    state.selectedByLayer.object = snapshot.selectedByLayer.object;
+    state.activeTool = snapshot.activeTool;
+    state.mapBrushSize = snapshot.mapBrushSize;
+    state.mapBarLength = snapshot.mapBarLength;
+    state.mapBarThickness = snapshot.mapBarThickness;
+    state.mapShapeStart = null;
+
+    dom.mapBrushSizeSelect.value = String(state.mapBrushSize);
+    dom.mapBarLengthInput.value = String(state.mapBarLength);
+    dom.mapBarThicknessInput.value = String(state.mapBarThickness);
+
+    syncMapInputsFromState();
+    updateMapLabels();
+    renderPalette();
+    renderLegend();
+    ensureSelectedVisible();
+    updateActiveLayerButtons();
+    updateActiveToolButtonState();
+    renderGrid();
+  }
+
+  function snapshotsEqualForMap(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function pushMapUndoState() {
+    const snapshot = createMapHistorySnapshot();
+    const undoStack = state.mapUndoStack;
+    const last = undoStack.length ? undoStack[undoStack.length - 1] : null;
+    if (!last || !snapshotsEqualForMap(last, snapshot)) {
+      undoStack.push(snapshot);
+      if (undoStack.length > MAP_HISTORY_LIMIT) {
+        undoStack.shift();
+      }
+    }
+    state.mapRedoStack = [];
+    updateMapUndoRedoButtons();
+  }
+
+  function undoMapAction() {
+    if (!state.mapUndoStack.length) {
+      return;
+    }
+    const current = createMapHistorySnapshot();
+    const previous = state.mapUndoStack.pop();
+    state.mapRedoStack.push(current);
+    if (state.mapRedoStack.length > MAP_HISTORY_LIMIT) {
+      state.mapRedoStack.shift();
+    }
+    restoreMapHistorySnapshot(previous);
+    updateMapUndoRedoButtons();
+    updateStatus('Map undo applied.');
+  }
+
+  function redoMapAction() {
+    if (!state.mapRedoStack.length) {
+      return;
+    }
+    const current = createMapHistorySnapshot();
+    const next = state.mapRedoStack.pop();
+    state.mapUndoStack.push(current);
+    if (state.mapUndoStack.length > MAP_HISTORY_LIMIT) {
+      state.mapUndoStack.shift();
+    }
+    restoreMapHistorySnapshot(next);
+    updateMapUndoRedoButtons();
+    updateStatus('Map redo applied.');
+  }
+
+  function updateMapUndoRedoButtons() {
+    if (!dom.mapUndoBtn || !dom.mapRedoBtn) {
+      return;
+    }
+    dom.mapUndoBtn.disabled = state.mapUndoStack.length === 0;
+    dom.mapRedoBtn.disabled = state.mapRedoStack.length === 0;
+  }
+
+  function beginMapStrokeHistoryIfNeeded() {
+    if (state.mapPendingStrokeSnapshot) {
+      return;
+    }
+    state.mapPendingStrokeSnapshot = createMapHistorySnapshot();
+    state.mapHasPendingStrokeChange = false;
+  }
+
+  function markMapStrokeChanged() {
+    state.mapHasPendingStrokeChange = true;
+  }
+
+  function finalizeMapStrokeHistory() {
+    if (!state.mapPendingStrokeSnapshot) {
+      return;
+    }
+    if (state.mapHasPendingStrokeChange) {
+      const prior = state.mapPendingStrokeSnapshot;
+      const current = createMapHistorySnapshot();
+      if (!snapshotsEqualForMap(prior, current)) {
+        state.mapUndoStack.push(prior);
+        if (state.mapUndoStack.length > MAP_HISTORY_LIMIT) {
+          state.mapUndoStack.shift();
+        }
+        state.mapRedoStack = [];
+      }
+      updateMapUndoRedoButtons();
+    }
+    state.mapPendingStrokeSnapshot = null;
+    state.mapHasPendingStrokeChange = false;
+  }
+
+  function getMapBrushPoints(centerRow, centerCol, brushSize) {
+    const points = [];
+    const startOffset = Math.floor(brushSize / 2);
+    for (let row = centerRow - startOffset; row < centerRow - startOffset + brushSize; row += 1) {
+      for (let col = centerCol - startOffset; col < centerCol - startOffset + brushSize; col += 1) {
+        if (!isInsideMap(col, row)) {
+          continue;
+        }
+        points.push([row, col]);
+      }
+    }
+    return points;
+  }
+
+  function getMapBarToolPoints(row, col, tool) {
+    const length = clampInteger(state.mapBarLength, 1, 256, 8);
+    const thickness = clampInteger(state.mapBarThickness, 1, 32, 1);
+    const points = [];
+    for (let t = 0; t < thickness; t += 1) {
+      for (let i = 0; i < length; i += 1) {
+        const nextRow = tool === 'hbar' ? row + t : row + i;
+        const nextCol = tool === 'hbar' ? col + i : col + t;
+        if (!isInsideMap(nextCol, nextRow)) {
+          continue;
+        }
+        points.push([nextRow, nextCol]);
+      }
+    }
+    return points;
+  }
+
+  function getMapLineToolPoints(startRow, startCol, endRow, endCol, thickness) {
+    const points = [];
+    const dr = Math.abs(endRow - startRow);
+    const dc = Math.abs(endCol - startCol);
+    const stepR = startRow < endRow ? 1 : -1;
+    const stepC = startCol < endCol ? 1 : -1;
+    let err = dc - dr;
+    let row = startRow;
+    let col = startCol;
+    while (true) {
+      getMapBrushPoints(row, col, Math.max(1, thickness)).forEach(function (point) {
+        points.push(point);
+      });
+      if (row === endRow && col === endCol) {
+        break;
+      }
+      const e2 = err * 2;
+      if (e2 > -dr) {
+        err -= dr;
+        col += stepC;
+      }
+      if (e2 < dc) {
+        err += dc;
+        row += stepR;
+      }
+    }
+    return points;
+  }
+
+  function applyMapStrokeToLayer(points) {
+    // Safety: object-layer bulk drawing with unique markers can create confusing outcomes.
+    // We conservatively restrict object-layer tools to single-cell placement.
+    if (state.activeLayer === 'object' && points.length > 1) {
+      points = [points[0]];
+      updateStatus('Object layer shape/brush is limited to single-cell placement for safety.');
+    }
+    points.forEach(function (point) {
+      applySelectedAt(point[0], point[1]);
+    });
   }
 
   function onActiveLayerChanged() {
@@ -1203,6 +2771,7 @@
       return;
     }
 
+    pushMapUndoState();
     resizeMap(nextWidth, nextHeight);
   }
 
@@ -1248,9 +2817,33 @@
     }
 
     if (state.activeTool === 'fill') {
+      pushMapUndoState();
       applyFillAt(row, col, state.selectedByLayer.tile);
       renderGrid();
       updateStatus('Fill applied from (' + col + ', ' + row + ').');
+      return;
+    }
+
+    if (state.activeTool === 'hbar' || state.activeTool === 'vbar') {
+      pushMapUndoState();
+      const barPoints = getMapBarToolPoints(row, col, state.activeTool);
+      applyMapStrokeToLayer(barPoints);
+      renderGrid();
+      return;
+    }
+
+    if (state.activeTool === 'line') {
+      if (!state.mapShapeStart) {
+        state.mapShapeStart = { row: row, col: col };
+        updateStatus('Line start set. Click end point to commit line.');
+        return;
+      }
+      pushMapUndoState();
+      const linePoints = getMapLineToolPoints(state.mapShapeStart.row, state.mapShapeStart.col, row, col, state.mapBarThickness);
+      applyMapStrokeToLayer(linePoints);
+      state.mapShapeStart = null;
+      renderGrid();
+      updateStatus('Line committed.');
       return;
     }
 
@@ -1260,9 +2853,16 @@
     }
     state.lastPaintedCellKey = currentKey;
 
-    applySelectedAt(row, col);
-    const marker = cell.querySelector('.cell-marker');
-    applyCellVisual(cell, marker, state.tileLayer[row][col], state.objectLayer[row][col]);
+    let brushSize = state.mapBrushSize;
+    if (state.activeLayer === 'object' && brushSize > 1) {
+      brushSize = 1;
+      updateStatus('Object layer brush is limited to 1px for safety.');
+    }
+
+    const points = getMapBrushPoints(row, col, brushSize);
+    applyMapStrokeToLayer(points);
+    markMapStrokeChanged();
+    renderGrid();
   }
 
   function applyFillAt(startRow, startCol, tileId) {
@@ -1363,8 +2963,14 @@
   function updateActiveToolButtonState() {
     dom.paintToolBtn.classList.toggle('active', state.activeTool === 'paint');
     dom.fillToolBtn.classList.toggle('active', state.activeTool === 'fill');
+    dom.mapHBarToolBtn.classList.toggle('active', state.activeTool === 'hbar');
+    dom.mapVBarToolBtn.classList.toggle('active', state.activeTool === 'vbar');
+    dom.mapLineToolBtn.classList.toggle('active', state.activeTool === 'line');
     dom.fillToolBtn.disabled = state.activeLayer === 'object';
-    dom.activeToolLabel.textContent = state.activeTool === 'fill' ? 'Fill' : 'Paint';
+    dom.activeToolLabel.textContent = state.activeTool === 'fill' ? 'Fill' :
+      state.activeTool === 'hbar' ? 'Horizontal Bar' :
+        state.activeTool === 'vbar' ? 'Vertical Bar' :
+          state.activeTool === 'line' ? 'Angled Line' : 'Paint';
   }
 
   function exportRawMapToFile() {
@@ -1650,6 +3256,7 @@
       try {
         const parsed = JSON.parse(String(reader.result));
         const normalized = normalizeImportedPayload(parsed);
+        pushMapUndoState();
         applyImportedMap(normalized);
         updateStatus('Map imported successfully.');
       } catch (error) {
@@ -1802,6 +3409,20 @@
 
     if (typeof candidate !== 'string') {
       return expectedLayer === 'object' ? OBJECT_IDS.none : TILE_IDS.empty;
+    }
+
+    if (expectedLayer !== 'object' && isCustomTextureId(candidate)) {
+      if (!DEFS_BY_ID[candidate]) {
+        DEFS_BY_ID[candidate] = {
+          id: candidate,
+          label: 'Custom Texture',
+          layer: 'tile',
+          group: 'Custom Textures',
+          color: '#9ca3af',
+          mapTypes: ['level', 'town']
+        };
+      }
+      return candidate;
     }
 
     if (expectedLayer !== 'object' && Object.prototype.hasOwnProperty.call(ENGINE_TILE_IDS, candidate)) {
